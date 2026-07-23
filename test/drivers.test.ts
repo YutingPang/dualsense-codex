@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { Deduper } from '../src/controller/hal.js'
 import { parseDs4Report } from '../src/controller/ds4-driver.js'
+import {
+  buildDualSenseBluetoothLedRelease,
+  normalizeDualSenseBluetoothOutput,
+} from '../src/controller/dualsense-bluetooth-output.js'
 import { parseGameSirReport } from '../src/controller/gamesir-driver.js'
 import { normalizeGenericAxis, parseGenericReport } from '../src/controller/generic-driver.js'
 import {
@@ -9,6 +13,44 @@ import {
   parseXboxReport,
 } from '../src/controller/xbox-driver.js'
 import type { ControllerEvent } from '../src/types.js'
+import { computeBluetoothReportChecksum } from 'dualsense-ts'
+
+function bluetoothCrc(report: Uint8Array): number {
+  return (report[74]! | (report[75]! << 8) | (report[76]! << 16) | (report[77]! << 24)) >>> 0
+}
+
+describe('DualSense Bluetooth output', () => {
+  it('adds the required sequence and tag while preserving the common payload', () => {
+    const malformed = new Uint8Array(78)
+    malformed[0] = 0x31
+    malformed[1] = 0x02
+    malformed[2] = 0x12
+    malformed[3] = 0x34
+    malformed[46] = 0xaa
+    malformed[47] = 0xbb
+    malformed[48] = 0xcc
+
+    const report = normalizeDualSenseBluetoothOutput(malformed, 7)
+
+    expect([...report.slice(0, 5)]).toEqual([0x31, 0x70, 0x10, 0x12, 0x34])
+    expect([...report.slice(47, 50)]).toEqual([0xaa, 0xbb, 0xcc])
+    expect(bluetoothCrc(report)).toBe(computeBluetoothReportChecksum(report))
+  })
+
+  it('builds a standalone report that releases the firmware-owned lightbar animation', () => {
+    const report = buildDualSenseBluetoothLedRelease(15)
+
+    expect([...report.slice(0, 3)]).toEqual([0x31, 0xf0, 0x10])
+    expect(report[41]).toBe(0x02)
+    expect(report[44]).toBe(0x02)
+    expect(bluetoothCrc(report)).toBe(computeBluetoothReportChecksum(report))
+  })
+
+  it('leaves non-Bluetooth reports untouched', () => {
+    const usb = new Uint8Array([0x02, 0x04, 0xff])
+    expect(normalizeDualSenseBluetoothOutput(usb, 0)).toBe(usb)
+  })
+})
 
 function buttons(events: ControllerEvent[]): Map<string, boolean> {
   const map = new Map<string, boolean>()

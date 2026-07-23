@@ -34,6 +34,12 @@ describe('loadConfig / saveConfig', () => {
     expect(DEFAULT_CONFIG.layers[0].bindings.r2).toEqual({ type: 'keys', bytes: '\x15' })
   })
 
+  it('ships useful single-button commands for the remaining standard controls', () => {
+    expect(DEFAULT_CONFIG.layers[0].bindings.l3).toEqual({ type: 'focus_session', index: -1 })
+    expect(DEFAULT_CONFIG.layers[0].bindings.menu).toEqual({ type: 'reject' })
+    expect(DEFAULT_CONFIG.layers[0].bindings.view).toEqual({ type: 'new_chat' })
+  })
+
   it('defaults to ~/.openmicro/config.json, respecting a HOME override', () => {
     process.env.HOME = dir
     const config = loadConfig()

@@ -3,7 +3,9 @@
 // resolve to tagged strings that execute() turns into `open` deep links or
 // System Events keystrokes into the frontmost Codex window.
 
-import { execFile, execFileSync } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -20,7 +22,14 @@ const KEY_EQUIVALENTS: Record<string, string> = {
   '\x1b[B': 'key code 125', // down arrow
   '\x1b[C': 'key code 124', // right arrow
   '\x1b[D': 'key code 123', // left arrow
+  '\x1b[5~': 'key code 116', // Page Up — scroll the current task upward
+  '\x1b[6~': 'key code 121', // Page Down — scroll the current task downward
   '\x1b[Z': 'key code 48 using shift down', // Shift+Tab
+  // Cmd+Shift+[ / ] = the app's built-in Previous / Next chat shortcuts.
+  // Use discrete modifier events: Electron's shortcut listener can miss the
+  // compact AppleScript `using {...}` form.
+  '\x1b[91;10u': 'key down command\nkey down shift\nkey code 33\nkey up shift\nkey up command',
+  '\x1b[93;10u': 'key down command\nkey down shift\nkey code 30\nkey up shift\nkey up command',
   // Clear the input line. Electron text boxes ignore Cocoa's Ctrl+U kill-line,
   // so select-all + delete (newline = sequential System Events statements).
   '\x15': 'keystroke "a" using command down\nkey code 51',
@@ -47,6 +56,78 @@ const RELEASE_ALL: string[] = [
 // interleave their key down/up steps and strand a modifier. execFile timeout
 // bounds a hung osascript so the queue always drains.
 let osascriptQueue: Promise<void> = Promise.resolve()
+
+// CoreGraphics has no Node API and AppleScript cannot move the pointer. Keep a
+// tiny Swift/CoreGraphics process alive and stream relative deltas to it; Swift
+// ships with macOS/Xcode, so this does not add a native npm dependency.
+const POINTER_HELPER = `import CoreGraphics
+while let line = readLine() {
+  let parts = line.split(separator: " ")
+  guard parts.count == 3, let dx = Double(parts[1]), let dy = Double(parts[2]) else { continue }
+  if parts[0] == "click", let current = CGEvent(source: nil)?.location {
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: current, mouseButton: .left)?.post(tap: .cghidEventTap)
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: current, mouseButton: .left)?.post(tap: .cghidEventTap)
+    continue
+  }
+  if parts[0] == "scroll" {
+    CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(dy), wheel2: Int32(dx), wheel3: 0)?.post(tap: .cghidEventTap)
+    continue
+  }
+  guard parts[0] == "move", let current = CGEvent(source: nil)?.location else { continue }
+  let destination = CGPoint(
+    x: current.x + CGFloat(dx),
+    y: current.y + CGFloat(dy)
+  )
+  CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: destination, mouseButton: .left)?.post(tap: .cghidEventTap)
+}`
+let pointerHelper: ChildProcessWithoutNullStreams | null = null
+let pointerUnavailable = false
+const POINTER_HELPER_PATH = path.join(os.tmpdir(), 'openmicro-pointer-helper-v4')
+
+function sendPointerCommand(command: 'move' | 'scroll' | 'click', dx: number, dy: number): void {
+  if (pointerUnavailable) return
+  if (!pointerHelper || pointerHelper.killed) {
+    try {
+      if (!existsSync(POINTER_HELPER_PATH)) {
+        execFileSync('/usr/bin/swiftc', ['-o', POINTER_HELPER_PATH, '-'], {
+          input: POINTER_HELPER,
+          stdio: ['pipe', 'ignore', 'pipe'],
+        })
+      }
+    } catch (err) {
+      pointerUnavailable = true
+      logger.warn('could not compile touchpad pointer helper', err)
+      return
+    }
+    pointerHelper = spawn(POINTER_HELPER_PATH)
+    pointerHelper.stderr.on('data', (data: Buffer) =>
+      logger.warn('touchpad pointer helper failed', data.toString().trim()),
+    )
+    pointerHelper.on('exit', () => {
+      pointerHelper = null
+    })
+  }
+  pointerHelper.stdin.write(`${command} ${dx.toFixed(3)} ${dy.toFixed(3)}\n`)
+}
+
+// Paste prompt text into the focused composer instead of opening a
+// `codex://new?prompt=...` deep link (which always creates a new task). Passing
+// the text through argv keeps it out of AppleScript source, and the clipboard
+// is restored after the paste. `keystroke` alone cannot reliably type Unicode.
+const PASTE_PROMPT_SCRIPT = `on run argv
+  set promptText to item 1 of argv
+  set oldClipboard to missing value
+  try
+    set oldClipboard to the clipboard
+  end try
+  set the clipboard to promptText
+  tell application "Codex" to activate
+  delay 0.15
+  tell application "System Events" to keystroke "v" using command down
+  delay 0.1
+  if oldClipboard is not missing value then set the clipboard to oldClipboard
+end run`
+
 function enqueueOsascript(
   args: string[],
   done: (err: Error | null, stderr?: string) => void,
@@ -269,9 +350,10 @@ export const codexAppHarness: Harness = {
         // param); only the threads/new form falls back to a plain new thread.
         return { bytes: 'open:codex://threads/new' }
       case 'prompt':
-        // Deep link prefills the composer but does NOT auto-send — the user
-        // follows with accept.
-        return { bytes: 'open:codex://new?prompt=' + encodeURIComponent(action.text) }
+        // Paste into the current task's composer but do NOT auto-send — the
+        // user follows with accept. Base64 keeps the tagged transport
+        // delimiter-safe; execute() decodes it before passing it as argv.
+        return { bytes: 'paste:' + Buffer.from(action.text, 'utf8').toString('base64') }
       case 'reject':
         return { bytes: 'osascript:key code 53' } // Esc — stop generation / dismiss
       case 'thinking_depth':
@@ -328,6 +410,15 @@ export const codexAppHarness: Harness = {
     }
     if (tag === 'open') {
       execFile('open', [payload], (err) => report(err))
+    } else if (tag === 'paste') {
+      let text: string
+      try {
+        text = Buffer.from(payload, 'base64').toString('utf8')
+      } catch (err) {
+        report(err as Error)
+        return
+      }
+      enqueueOsascript(['-e', PASTE_PROMPT_SCRIPT, '--', text], report)
     } else if (tag === 'osascript') {
       // System Events keystrokes require the terminal to have Accessibility /
       // Automation permission. A newline in the payload runs as sequential
@@ -350,7 +441,21 @@ export const codexAppHarness: Harness = {
     }
   },
 
+  movePointer(dx: number, dy: number): void {
+    sendPointerCommand('move', dx, dy)
+  },
+
+  scrollPointer(dx: number, dy: number): void {
+    sendPointerCommand('scroll', dx, dy)
+  },
+
+  clickPointer(): void {
+    sendPointerCommand('click', 0, 0)
+  },
+
   dispose(): void {
     releaseAllKeys()
+    pointerHelper?.kill()
+    pointerHelper = null
   },
 }

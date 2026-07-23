@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const execFile = vi.hoisted(() => vi.fn())
 const execFileSync = vi.hoisted(() => vi.fn())
-vi.mock('node:child_process', () => ({ execFile, execFileSync }))
+const spawn = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', () => ({ execFile, execFileSync, spawn }))
 
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -166,9 +167,10 @@ describe('codex-app harness', () => {
     })
   })
 
-  it('URL-encodes prompt text into the deep link', () => {
-    expect(codexAppHarness.resolveAction({ type: 'prompt', text: 'fix a & b?' }, ctx)).toEqual({
-      bytes: 'open:codex://new?prompt=fix%20a%20%26%20b%3F',
+  it('encodes prompt text for pasting into the current composer', () => {
+    const text = '修复 a & b?'
+    expect(codexAppHarness.resolveAction({ type: 'prompt', text }, ctx)).toEqual({
+      bytes: 'paste:' + Buffer.from(text).toString('base64'),
     })
   })
 
@@ -178,6 +180,20 @@ describe('codex-app harness', () => {
     })
     expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[A' }, ctx)).toEqual({
       bytes: 'osascript:key code 126',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[5~' }, ctx)).toEqual({
+      bytes: 'osascript:key code 116',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[6~' }, ctx)).toEqual({
+      bytes: 'osascript:key code 121',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[91;10u' }, ctx)).toEqual({
+      bytes:
+        'osascript:key down command\nkey down shift\nkey code 33\nkey up shift\nkey up command',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[93;10u' }, ctx)).toEqual({
+      bytes:
+        'osascript:key down command\nkey down shift\nkey code 30\nkey up shift\nkey up command',
     })
     expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x15' }, ctx)).toEqual({
       bytes: 'osascript:keystroke "a" using command down\nkey code 51',
@@ -290,6 +306,21 @@ describe('codex-app harness', () => {
   it('executes open: bytes via execFile with an arg array', () => {
     codexAppHarness.execute?.('open:codex://new')
     expect(execFile).toHaveBeenCalledWith('open', ['codex://new'], expect.any(Function))
+  })
+
+  it('pastes prompts into the current composer and preserves Unicode', async () => {
+    const text = '检查当前改动，并修复 a & b?'
+    codexAppHarness.execute?.('paste:' + Buffer.from(text).toString('base64'))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execFile).toHaveBeenCalledWith(
+      'osascript',
+      expect.arrayContaining(['--', text]),
+      { timeout: 5000 },
+      expect.any(Function),
+    )
+    const args = execFile.mock.calls[0]![1] as string[]
+    expect(args.join('\n')).toContain('keystroke "v" using command down')
+    expect(args[1]).not.toContain(text) // text is argv, never interpolated into AppleScript source
   })
 
   it('executes osascript: bytes as activate + System Events keystroke', async () => {

@@ -147,6 +147,9 @@ export const DEFAULT_CONFIG: OpenMicroConfig = {
         dpad_left: { type: 'keys', bytes: '\x1b[D' },
         r1: { type: 'keys', bytes: '\x1b[Z' }, // Shift+Tab — cycle permission/plan modes
         r2: { type: 'keys', bytes: '\x15' }, // Ctrl+U — clear the input line
+        l3: TOUCHPAD_CYCLE, // Left-stick click — focus the next session
+        menu: { type: 'reject' }, // Options/Menu — close or cancel
+        view: { type: 'new_chat' }, // Create/View — start a new chat
         lstick_up: { type: 'workflow', presetId: 'review-pr' },
         lstick_down: { type: 'workflow', presetId: 'debug' },
         lstick_left: { type: 'workflow', presetId: 'refactor' },
