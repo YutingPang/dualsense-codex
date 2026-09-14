@@ -32,26 +32,43 @@ let tray: Tray | null = null
 let manuallyPaused = false
 let quitting = false
 let runtime: DesktopRuntime | null = null
-let codexRunning = false
-let codexPoll: ReturnType<typeof setInterval> | null = null
+let chatGptRunning = false
+let chatGptPoll: ReturnType<typeof setInterval> | null = null
 
 function notifySnapshot(): void {
   mainWindow?.webContents.send(IPC.getSnapshot, snapshot())
 }
 
-function refreshCodexPresence(): void {
-  execFile('pgrep', ['-x', 'Codex'], (error) => {
-    const running = !error
-    if (running === codexRunning) return
-    codexRunning = running
-    notifySnapshot()
+function setChatGptPresence(running: boolean): void {
+  if (running === chatGptRunning) return
+  chatGptRunning = running
+  notifySnapshot()
+}
+
+function refreshChatGptPresence(): void {
+  // The migrated desktop app is named ChatGPT, while older Codex builds used
+  // Codex as the process name. Keep the latter as a compatibility fallback.
+  execFile('pgrep', ['-x', 'ChatGPT'], (error) => {
+    if (!error) {
+      setChatGptPresence(true)
+      return
+    }
+    execFile('pgrep', ['-x', 'Codex'], (legacyError) => {
+      setChatGptPresence(!legacyError)
+    })
   })
 }
 
-function wakeCodex(): void {
+function wakeChatGpt(): void {
   execFile('open', ['-b', 'com.openai.codex'], (error) => {
-    if (error) execFile('open', ['-a', 'Codex'])
-    refreshCodexPresence()
+    if (error) {
+      execFile('open', ['-a', 'ChatGPT'], (fallbackError) => {
+        if (fallbackError) execFile('open', ['-a', 'Codex'])
+        refreshChatGptPresence()
+      })
+      return
+    }
+    refreshChatGptPresence()
   })
 }
 
@@ -95,7 +112,7 @@ function snapshot(): DesktopSnapshot {
       paused: runtime?.isPaused ?? manuallyPaused,
       reason: manuallyPaused ? 'manual' : null,
     },
-    codex: { running: codexRunning },
+    chatgpt: { running: chatGptRunning },
     app: { version: app.getVersion(), packaged: app.isPackaged },
   }
 }
@@ -167,8 +184,8 @@ if (!hasLock) {
   app.on('second-instance', () => showMainWindow())
   app.on('before-quit', () => {
     quitting = true
-    if (codexPoll) clearInterval(codexPoll)
-    codexPoll = null
+    if (chatGptPoll) clearInterval(chatGptPoll)
+    chatGptPoll = null
     runtime?.stop()
     runtime = null
   })
@@ -203,12 +220,17 @@ if (!hasLock) {
   void app.whenReady().then(() => {
     runtime = new DesktopRuntime(readConfig().config, {
       onStateChange: notifySnapshot,
-      onPlayStation: wakeCodex,
+      onPlayStation: wakeChatGpt,
     })
     runtime.start()
-    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
-    refreshCodexPresence()
-    codexPoll = setInterval(refreshCodexPresence, 1500)
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      // Electron supports this macOS setting even though the installed type
+      // declarations do not expose it yet.
+      ...({ openAsHidden: true } as Record<string, boolean>),
+    })
+    refreshChatGptPresence()
+    chatGptPoll = setInterval(refreshChatGptPresence, 1500)
     const trayIcon = nativeImage.createFromDataURL(
       'data:image/svg+xml;charset=utf-8,' +
         encodeURIComponent(

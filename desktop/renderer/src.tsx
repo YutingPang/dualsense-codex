@@ -72,7 +72,7 @@ function App() {
     return () => clearInterval(presencePoll)
   }, [])
   const connected = snapshot?.controller.connected ?? false
-  const codexRunning = snapshot?.codex.running ?? false
+  const chatGptRunning = snapshot?.chatgpt.running ?? false
   const binding = draft?.layers[layerIndex]?.bindings[control]
   const dirty =
     envelope && draft ? JSON.stringify(envelope.config) !== JSON.stringify(draft) : false
@@ -144,9 +144,9 @@ function App() {
           <h1>DualSense for Codex</h1>
           <p className="subtitle">Configure your controller without editing source code.</p>
         </div>
-        <span className={`status ${codexRunning ? 'connected' : ''}`}>
+        <span className={`status ${chatGptRunning ? 'connected' : ''}`}>
           <span className="dot" />
-          {codexRunning ? 'Codex running' : 'Codex offline'}
+          {chatGptRunning ? 'ChatGPT running' : 'ChatGPT offline'}
         </span>
       </header>
 
@@ -166,9 +166,9 @@ function App() {
           <h2>{snapshot?.controller.productName ?? 'DualSense not detected'}</h2>
           <p>
             {connected
-              ? codexRunning
-                ? 'Controller ready — PlayStation starts or focuses Codex.'
-                : 'Controller ready — Codex is offline. Press PlayStation to launch it.'
+              ? chatGptRunning
+                ? 'Controller ready — PlayStation starts or focuses ChatGPT (Codex).'
+                : 'Controller ready — ChatGPT is offline. Press PlayStation to launch it.'
               : 'You can configure bindings while the controller is disconnected.'}
           </p>
           <button onClick={() => load(window.openMicroDesktop.refreshController())}>

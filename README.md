@@ -239,11 +239,12 @@ The packaged application is written to
 settings window keeps the menu-bar process running; choose **Quit DualSense for
 Codex** from its menu to stop it.
 
-The companion starts at login and keeps listening even when Codex is closed.
-Its status panel distinguishes a connected controller from Codex being online.
-Press the DualSense PlayStation button to launch or focus Codex; the controller
-then resumes its normal bindings when Codex is ready. If Codex is offline, the
-companion remains idle and continues listening for the next launch.
+The companion starts at login and keeps listening even when ChatGPT is closed.
+Its status panel detects the ChatGPT desktop process (the app that now contains
+Codex) separately from the controller connection. Press the DualSense
+PlayStation button to launch or focus ChatGPT; the controller then resumes its
+normal bindings when Codex is ready. If ChatGPT is offline, the companion
+remains idle and continues listening for the next launch.
 
 The editor reads `~/.openmicro/config.json` and writes only when **Apply
 changes** is selected. It rejects stale edits when the file changed outside the
