@@ -6,6 +6,7 @@ import { devices } from 'node-hid'
 import { loadConfig, saveConfig, validateConfig } from '../../src/layers.js'
 import type { ApplyConfigRequest, ConfigEnvelope, DesktopSnapshot } from '../shared/contracts.js'
 import { IPC } from '../shared/contracts.js'
+import { DesktopRuntime } from './runtime.js'
 
 function configRevision(config: unknown): string {
   return createHash('sha256').update(JSON.stringify(config)).digest('hex')
@@ -29,6 +30,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let manuallyPaused = false
 let quitting = false
+let runtime: DesktopRuntime | null = null
 
 function controllerSnapshot(): DesktopSnapshot['controller'] {
   try {
@@ -63,9 +65,13 @@ function controllerSnapshot(): DesktopSnapshot['controller'] {
 }
 
 function snapshot(): DesktopSnapshot {
+  const controller = controllerSnapshot()
   return {
-    controller: controllerSnapshot(),
-    runtime: { paused: manuallyPaused, reason: manuallyPaused ? 'manual' : null },
+    controller: runtime?.isConnected ? { ...controller, connected: true } : controller,
+    runtime: {
+      paused: runtime?.isPaused ?? manuallyPaused,
+      reason: manuallyPaused ? 'manual' : null,
+    },
     app: { version: app.getVersion(), packaged: app.isPackaged },
   }
 }
@@ -79,6 +85,7 @@ function updateTrayMenu(): void {
         label: manuallyPaused ? 'Resume Controller' : 'Pause Controller',
         click: () => {
           manuallyPaused = !manuallyPaused
+          runtime?.setPaused(manuallyPaused)
           updateTrayMenu()
           mainWindow?.webContents.send(IPC.getSnapshot, snapshot())
         },
@@ -136,6 +143,8 @@ if (!hasLock) {
   app.on('second-instance', () => showMainWindow())
   app.on('before-quit', () => {
     quitting = true
+    runtime?.stop()
+    runtime = null
   })
   app.on('window-all-closed', () => {
     // The menu-bar app remains available until the user chooses Quit.
@@ -146,6 +155,7 @@ if (!hasLock) {
   ipcMain.handle(IPC.setPaused, (_event, paused: unknown) => {
     if (typeof paused !== 'boolean') throw new TypeError('paused must be a boolean')
     manuallyPaused = paused
+    runtime?.setPaused(paused)
     updateTrayMenu()
     return snapshot()
   })
@@ -160,10 +170,15 @@ if (!hasLock) {
     }
     const config = validateConfig(request.config)
     saveConfig(config)
+    runtime?.applyConfig(config)
     return { config, revision: configRevision(config) }
   })
 
   void app.whenReady().then(() => {
+    runtime = new DesktopRuntime(readConfig().config, {
+      onStateChange: () => mainWindow?.webContents.send(IPC.getSnapshot, snapshot()),
+    })
+    runtime.start()
     const trayIcon = nativeImage.createFromDataURL(
       'data:image/svg+xml;charset=utf-8,' +
         encodeURIComponent(

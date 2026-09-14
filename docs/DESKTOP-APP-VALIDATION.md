@@ -14,7 +14,8 @@ Date: September 14, 2026
 - `npm run typecheck`: passed, including desktop main, preload, and renderer sources.
 - `npm run lint`: passed.
 - `npm run format:check`: passed after formatting the pre-existing README drift.
-- `npm test`: 18 files and 279 tests passed with local-loopback access enabled.
+- `npm test`: 19 files and 283 tests passed with local-loopback access enabled, including
+  controller routing, pause/resume cleanup, configuration hot reload, and disconnect cleanup.
 - The Forge package command under native arm64 Node generated an arm64 `.app`.
 - The packaged executable is arm64.
 - The package contains `node-hid`'s `HID-darwin-arm64/node-napi-v4.node` outside ASAR and loads without an immediate main-process error.
@@ -27,6 +28,8 @@ Date: September 14, 2026
 - Sandboxed, context-isolated renderer with a narrow preload bridge.
 - DualSense and generic controller enumeration.
 - Manual pause/resume state.
+- Live controller input routing through the existing Codex desktop harness.
+- Pause/resume, disconnect, configuration replacement, and shutdown release synthetic output.
 - Six-layer binding editor with action-specific fields.
 - Atomic configuration persistence and stale-revision rejection.
 - Stronger configuration validation for colors, layer references, and workflows.
@@ -37,7 +40,8 @@ Date: September 14, 2026
 The following require an interactive user session and are not claimed as verified:
 
 - Visual inspection of the settings window through macOS accessibility tooling.
-- Bluetooth connection and reconnect with a physical DualSense.
+- Bluetooth reconnect with a physical DualSense (initial Bluetooth connection and driver startup
+  were observed successfully).
 - USB connection.
 - Accessibility and Automation permission prompts.
 - Observed Codex response to shortcuts, prompt insertion, and hold-to-talk.
