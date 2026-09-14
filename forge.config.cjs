@@ -5,6 +5,12 @@ const packagedPaths = [
   '/node_modules/pkg-prebuilds',
 ]
 
+const ignoredNodeHidPaths = (file) =>
+  file.startsWith('/node_modules/node-hid/hidapi') ||
+  file.startsWith('/node_modules/node-hid/src') ||
+  (file.startsWith('/node_modules/node-hid/prebuilds/') &&
+    !file.startsWith('/node_modules/node-hid/prebuilds/HID-darwin-arm64'))
+
 module.exports = {
   rebuildConfig: {
     // node-hid ships an arm64 N-API prebuild that works across Node/Electron ABIs.
@@ -15,10 +21,15 @@ module.exports = {
     executableName: 'dualsense-for-codex',
     appBundleId: 'dev.openmicro.dualsense-for-codex',
     asar: true,
+    // The Vite build bundles application dependencies. Disabling Forge's
+    // npm-prune pass avoids a very slow dependency-tree walk on macOS while
+    // preserving the explicit packager ignore allowlist below.
+    prune: false,
     osxSign: false,
     ignore: (file) =>
       file !== '' &&
-      !packagedPaths.some((entry) => file.startsWith(entry) || entry.startsWith(`${file}/`)),
+      (ignoredNodeHidPaths(file) ||
+        !packagedPaths.some((entry) => file.startsWith(entry) || entry.startsWith(`${file}/`))),
   },
   makers: [{ name: '@electron-forge/maker-zip', platforms: ['darwin'] }],
   plugins: [
