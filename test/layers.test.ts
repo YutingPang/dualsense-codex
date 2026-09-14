@@ -107,4 +107,19 @@ describe('loadConfig / saveConfig', () => {
     fs.writeFileSync(configPath, bad)
     expect(() => loadConfig(configPath)).toThrow(/invalid config/)
   })
+
+  it('rejects out-of-range colors and layer actions', () => {
+    const bad = structuredClone(DEFAULT_CONFIG) as OpenMicroConfig
+    bad.layers[0].color.r = 256
+    bad.layers[0].bindings.south = { type: 'layer', index: 6 }
+    fs.writeFileSync(configPath, JSON.stringify(bad))
+    expect(() => loadConfig(configPath)).toThrow(/invalid config/)
+  })
+
+  it('rejects a binding that references a missing workflow', () => {
+    const bad = structuredClone(DEFAULT_CONFIG) as OpenMicroConfig
+    bad.layers[0].bindings.south = { type: 'workflow', presetId: 'missing' }
+    fs.writeFileSync(configPath, JSON.stringify(bad))
+    expect(() => loadConfig(configPath)).toThrow(/workflow.*does not exist/)
+  })
 })

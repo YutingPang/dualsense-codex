@@ -221,6 +221,29 @@ const state = agentStatus(['waiting'], previousStateKey)
 
 Each function returns `{ message, tone }` or `null`; agent statuses also return `stateKey` for the next deduplication call. Prompt text and unknown raw key bytes are never included. The embedding application owns output, ANSI styling, successful-action checks, and repeat/release suppression.
 
+## macOS desktop companion
+
+The desktop MVP is an Apple Silicon menu-bar app with a visual binding editor:
+
+```bash
+npm run desktop:start
+npm run desktop:package
+```
+
+Run these commands with a native arm64 Node.js installation. A Node process
+running under Rosetta can start the CLI but cannot reliably produce the arm64
+Electron package.
+
+The packaged application is written to
+`out/DualSense for Codex-darwin-arm64/DualSense for Codex.app`. Closing the
+settings window keeps the menu-bar process running; choose **Quit DualSense for
+Codex** from its menu to stop it.
+
+The editor reads `~/.openmicro/config.json` and writes only when **Apply
+changes** is selected. It rejects stale edits when the file changed outside the
+app. macOS may require Accessibility and Automation permission before
+controller actions can operate Codex.
+
 ## Troubleshooting
 
 ### Controller is connected but OpenMicro cannot open it

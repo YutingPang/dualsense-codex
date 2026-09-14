@@ -126,12 +126,28 @@ describe('LayerRouter: layer switching', () => {
     router.route(release('l1'))
     tick(GUARD_WINDOW_MS + 1)
 
-    // Still-held south must not fire, and its release is swallowed too.
+    // A duplicate press stays dead, but release returns the original action
+    // so the caller can stop any repeat or held chord that press started.
     expect(router.route(press('south'))).toBeNull()
-    expect(router.route(release('south'))).toBeNull()
+    expect(router.route(release('south'))).toEqual({ type: 'accept' })
 
     // A fresh press after release works normally.
     expect(router.route(press('south'))).toEqual({ type: 'reject' })
+  })
+
+  it('releases the action started before a layer switch instead of the new binding', () => {
+    const config = makeConfig({
+      0: layer('Layer 1', { north: { type: 'push_to_talk' } }),
+      1: layer('Layer 2', { north: { type: 'reject' } }),
+    })
+    const { router, tick } = makeRouter(config)
+    tick(GUARD_WINDOW_MS + 1)
+
+    expect(router.route(press('north'))).toEqual({ type: 'push_to_talk' })
+    router.route(press('l1'))
+    router.route(press('east'))
+
+    expect(router.route(release('north'))).toEqual({ type: 'push_to_talk' })
   })
 
   it('the held-accept race: a press held through the flip cannot fire, but a fresh one can', () => {

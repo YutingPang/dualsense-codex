@@ -76,7 +76,8 @@ const CONTROL_IDS: readonly ControlId[] = [
 ]
 const CONTROL_ID_SET: ReadonlySet<string> = new Set(CONTROL_IDS)
 
-const rgbSchema = z.object({ r: z.number(), g: z.number(), b: z.number() })
+const rgbChannelSchema = z.number().int().min(0).max(255)
+const rgbSchema = z.object({ r: rgbChannelSchema, g: rgbChannelSchema, b: rgbChannelSchema })
 
 // Mirrors src/harness/types.ts `Action` exactly. Kept in sync by hand — the
 // harness contract is the source of truth and rarely changes.
@@ -88,8 +89,8 @@ const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('thinking_depth'), delta: z.union([z.literal(1), z.literal(-1)]) }),
   z.object({ type: z.literal('workflow'), presetId: z.string() }),
   z.object({ type: z.literal('prompt'), text: z.string() }),
-  z.object({ type: z.literal('focus_session'), index: z.number() }),
-  z.object({ type: z.literal('layer'), index: z.number() }),
+  z.object({ type: z.literal('focus_session'), index: z.number().int().min(-1) }),
+  z.object({ type: z.literal('layer'), index: z.number().int().min(0).max(5) }),
   z.object({ type: z.literal('herdr_space') }),
   z.object({ type: z.literal('keys'), bytes: z.string() }),
 ])
@@ -108,10 +109,36 @@ const layerSchema = z.object({
   bindings: bindingsSchema,
 })
 
-const configSchema = z.object({
-  layers: z.array(layerSchema).length(6),
-  workflows: z.record(z.string(), z.string()),
-})
+const configSchema = z
+  .object({
+    layers: z.array(layerSchema).length(6),
+    workflows: z.record(z.string(), z.string()),
+  })
+  .superRefine((config, context) => {
+    config.layers.forEach((layer, layerIndex) => {
+      Object.entries(layer.bindings).forEach(([control, action]) => {
+        if (action.type === 'workflow' && !(action.presetId in config.workflows)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['layers', layerIndex, 'bindings', control, 'presetId'],
+            message: `workflow ${JSON.stringify(action.presetId)} does not exist`,
+          })
+        }
+      })
+    })
+  })
+
+export function validateConfig(input: unknown): OpenMicroConfig {
+  const result = configSchema.safeParse(input)
+  if (!result.success) {
+    const issues = result.error.issues.map((issue) => {
+      const location = issue.path.join('.') || '(root)'
+      return `${location}: ${issue.message}`
+    })
+    throw new Error(`openmicro: invalid configuration:\n${issues.join('\n')}`)
+  }
+  return result.data as OpenMicroConfig
+}
 
 // touchpad cycles focus across occupied session slots. `focus_session` is a
 // core-handled action (never reaches a Harness); index -1 is a sentinel this
@@ -202,9 +229,10 @@ export function saveConfig(
   config: OpenMicroConfig,
   configPath: string = defaultConfigPath(),
 ): void {
+  const validated = validateConfig(config)
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
   const tmp = `${configPath}.tmp-${process.pid}`
-  fs.writeFileSync(tmp, JSON.stringify(config, null, 2) + '\n', 'utf8')
+  fs.writeFileSync(tmp, JSON.stringify(validated, null, 2) + '\n', 'utf8')
   fs.renameSync(tmp, configPath)
 }
 
@@ -241,10 +269,9 @@ export function loadConfig(configPath: string = defaultConfigPath()): OpenMicroC
     )
   }
 
-  const result = configSchema.safeParse(parsed)
-  if (!result.success) {
-    const issues = result.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
-    throw new Error(`openmicro: invalid config at ${configPath}:\n${issues.join('\n')}`)
+  try {
+    return validateConfig(parsed)
+  } catch (err) {
+    throw new Error(`openmicro: invalid config at ${configPath}:\n${(err as Error).message}`)
   }
-  return result.data as OpenMicroConfig
 }

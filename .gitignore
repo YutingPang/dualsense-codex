@@ -1,6 +1,8 @@
 node_modules/
 .pnpm-store/
 dist/
+out/
+.vite/
 .DS_Store
 *.log
 .claude/settings.local.json
