@@ -105,7 +105,7 @@ function showMainWindow(): void {
     title: 'DualSense for Codex',
     backgroundColor: '#0a0d12',
     webPreferences: {
-      preload: path.join(dirname, 'preload.js'),
+      preload: path.join(dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

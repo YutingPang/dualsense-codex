@@ -9,7 +9,7 @@
     "url": "git+https://github.com/stephenleo/OpenMicro.git"
   },
   "type": "module",
-  "main": ".vite/build/main.js",
+  "main": ".vite/build/main.cjs",
   "bin": {
     "openmicro": "dist/cli.js"
   },
