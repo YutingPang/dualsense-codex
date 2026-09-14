@@ -37,6 +37,8 @@ const KEY_EQUIVALENTS: Record<string, string> = {
   // assign to ^⇧M (see README). Discrete modifier key downs — the app's
   // shortcut listener ignores the inline `using {...}` form.
   '\x1b[109;6u': 'key down control\nkey down shift\nkey code 46\nkey up shift\nkey up control',
+  // Ctrl+Option+P → user-assigned Codex "Plan mode" shortcut.
+  '\x1b[112;7u': 'key down control\nkey down option\nkey code 35\nkey up option\nkey up control',
 }
 
 // Synthetic `key down` events are system-wide: a chord whose `key up` never
