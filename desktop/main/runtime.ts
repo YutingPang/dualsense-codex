@@ -31,6 +31,7 @@ export interface DesktopRuntimeOptions {
   controller?: ControllerSource
   harness?: Harness
   onStateChange?: () => void
+  onPlayStation?: () => void
 }
 
 /** Owns the controller-to-Codex event pipeline for the Electron process. */
@@ -40,6 +41,7 @@ export class DesktopRuntime {
   private readonly repeater = new KeyRepeater()
   private readonly touchpad = new TouchpadGestureTracker()
   private readonly onStateChange: () => void
+  private readonly onPlayStation: () => void
   private router: LayerRouter
   private config: OpenMicroConfig
   private thinkingLevel = DEFAULT_THINKING_LEVEL
@@ -53,6 +55,7 @@ export class DesktopRuntime {
     this.controller = options.controller ?? new HidManager()
     this.harness = options.harness ?? codexAppHarness
     this.onStateChange = options.onStateChange ?? (() => {})
+    this.onPlayStation = options.onPlayStation ?? (() => {})
   }
 
   get isPaused(): boolean {
@@ -106,6 +109,10 @@ export class DesktopRuntime {
       this.releaseOutput()
       this.router = new LayerRouter(this.config)
       this.onStateChange()
+      return
+    }
+    if (event.kind === 'system') {
+      if (event.control === 'playstation' && event.pressed) this.onPlayStation()
       return
     }
     if (this.paused) return

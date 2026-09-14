@@ -70,6 +70,13 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
       this.button(c.right.analog.button, 'r3')
       this.button(c.options, 'menu')
       this.button(c.create, 'view')
+      c.ps.on('change', (i: Momentary) => {
+        this.emit('data', {
+          kind: 'system',
+          control: 'playstation',
+          pressed: i.state,
+        } satisfies ControllerEvent)
+      })
       // The physical click remains a normal remappable button. A single touch
       // is also exposed separately so GUI harnesses can use it as a trackpad.
       this.button(c.touchpad.button, 'touchpad')

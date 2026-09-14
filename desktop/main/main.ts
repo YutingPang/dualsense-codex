@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Tray } from 'electron'
 import { createHash } from 'node:crypto'
+import { execFile } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { devices } from 'node-hid'
@@ -31,6 +32,28 @@ let tray: Tray | null = null
 let manuallyPaused = false
 let quitting = false
 let runtime: DesktopRuntime | null = null
+let codexRunning = false
+let codexPoll: ReturnType<typeof setInterval> | null = null
+
+function notifySnapshot(): void {
+  mainWindow?.webContents.send(IPC.getSnapshot, snapshot())
+}
+
+function refreshCodexPresence(): void {
+  execFile('pgrep', ['-x', 'Codex'], (error) => {
+    const running = !error
+    if (running === codexRunning) return
+    codexRunning = running
+    notifySnapshot()
+  })
+}
+
+function wakeCodex(): void {
+  execFile('open', ['-b', 'com.openai.codex'], (error) => {
+    if (error) execFile('open', ['-a', 'Codex'])
+    refreshCodexPresence()
+  })
+}
 
 function controllerSnapshot(): DesktopSnapshot['controller'] {
   try {
@@ -72,6 +95,7 @@ function snapshot(): DesktopSnapshot {
       paused: runtime?.isPaused ?? manuallyPaused,
       reason: manuallyPaused ? 'manual' : null,
     },
+    codex: { running: codexRunning },
     app: { version: app.getVersion(), packaged: app.isPackaged },
   }
 }
@@ -143,6 +167,8 @@ if (!hasLock) {
   app.on('second-instance', () => showMainWindow())
   app.on('before-quit', () => {
     quitting = true
+    if (codexPoll) clearInterval(codexPoll)
+    codexPoll = null
     runtime?.stop()
     runtime = null
   })
@@ -176,9 +202,13 @@ if (!hasLock) {
 
   void app.whenReady().then(() => {
     runtime = new DesktopRuntime(readConfig().config, {
-      onStateChange: () => mainWindow?.webContents.send(IPC.getSnapshot, snapshot()),
+      onStateChange: notifySnapshot,
+      onPlayStation: wakeCodex,
     })
     runtime.start()
+    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
+    refreshCodexPresence()
+    codexPoll = setInterval(refreshCodexPresence, 1500)
     const trayIcon = nativeImage.createFromDataURL(
       'data:image/svg+xml;charset=utf-8,' +
         encodeURIComponent(
@@ -190,6 +220,6 @@ if (!hasLock) {
     tray.setToolTip('DualSense for Codex')
     tray.on('click', () => showMainWindow())
     updateTrayMenu()
-    showMainWindow()
+    if (!app.getLoginItemSettings().wasOpenedAtLogin) showMainWindow()
   })
 }

@@ -12,6 +12,9 @@ export interface DesktopSnapshot {
     paused: boolean
     reason: 'manual' | null
   }
+  codex: {
+    running: boolean
+  }
   app: {
     version: string
     packaged: boolean

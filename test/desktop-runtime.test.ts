@@ -82,4 +82,17 @@ describe('DesktopRuntime', () => {
     expect(controller.stop).toHaveBeenCalledOnce()
     expect(dispose).toHaveBeenCalledTimes(2)
   })
+
+  it('keeps the PlayStation key out of normal bindings and forwards its press to wake Codex', () => {
+    const controller = new FakeController()
+    const onPlayStation = vi.fn()
+    const runtime = new DesktopRuntime(structuredClone(DEFAULT_CONFIG), {
+      controller,
+      onPlayStation,
+    })
+    runtime.start()
+    controller.send({ kind: 'system', control: 'playstation', pressed: true })
+    controller.send({ kind: 'system', control: 'playstation', pressed: false })
+    expect(onPlayStation).toHaveBeenCalledOnce()
+  })
 })

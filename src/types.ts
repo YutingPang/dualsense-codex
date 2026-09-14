@@ -37,3 +37,4 @@ export type ControllerEvent =
     }
   | { kind: 'connected'; controllerType: ControllerType }
   | { kind: 'disconnected' }
+  | { kind: 'system'; control: 'playstation'; pressed: boolean }

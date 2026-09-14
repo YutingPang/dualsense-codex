@@ -57,6 +57,9 @@ function App() {
 
   useEffect(() => {
     load(window.openMicroDesktop.getSnapshot())
+    const presencePoll = setInterval(() => {
+      void window.openMicroDesktop.getSnapshot().then(setSnapshot)
+    }, 1500)
     void window.openMicroDesktop
       .getConfig()
       .then((next) => {
@@ -66,8 +69,10 @@ function App() {
       .catch((reason: unknown) =>
         setError(reason instanceof Error ? reason.message : String(reason)),
       )
+    return () => clearInterval(presencePoll)
   }, [])
   const connected = snapshot?.controller.connected ?? false
+  const codexRunning = snapshot?.codex.running ?? false
   const binding = draft?.layers[layerIndex]?.bindings[control]
   const dirty =
     envelope && draft ? JSON.stringify(envelope.config) !== JSON.stringify(draft) : false
@@ -139,9 +144,9 @@ function App() {
           <h1>DualSense for Codex</h1>
           <p className="subtitle">Configure your controller without editing source code.</p>
         </div>
-        <span className={`status ${connected ? 'connected' : ''}`}>
+        <span className={`status ${codexRunning ? 'connected' : ''}`}>
           <span className="dot" />
-          {connected ? 'Controller connected' : 'No controller'}
+          {codexRunning ? 'Codex running' : 'Codex offline'}
         </span>
       </header>
 
@@ -161,7 +166,9 @@ function App() {
           <h2>{snapshot?.controller.productName ?? 'DualSense not detected'}</h2>
           <p>
             {connected
-              ? 'The packaged execution path can enumerate your controller.'
+              ? codexRunning
+                ? 'Controller ready — PlayStation starts or focuses Codex.'
+                : 'Controller ready — Codex is offline. Press PlayStation to launch it.'
               : 'You can configure bindings while the controller is disconnected.'}
           </p>
           <button onClick={() => load(window.openMicroDesktop.refreshController())}>
