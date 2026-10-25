@@ -109,13 +109,20 @@ const isHost = await server.listen(HOST_PORT)
 
 let hid: HidManager | null = null
 
-function shutdown(): void {
-  agent.dispose()
-  if (herdrPaneId) releaseAgent(herdrPaneId)
-  if (isHost) {
-    server.close()
-    hid?.stop()
-  }
+// Async because a GUI harness must drain queued synthetic key chords before
+// the process exits; a late `key down` would strand a modifier machine-wide.
+// Memoised so the pty exit callback and a signal handler cannot run it twice.
+let shutdownPromise: Promise<void> | null = null
+function shutdown(): Promise<void> {
+  shutdownPromise ??= (async () => {
+    await agent.dispose()
+    if (herdrPaneId) releaseAgent(herdrPaneId)
+    if (isHost) {
+      server.close()
+      hid?.stop()
+    }
+  })()
+  return shutdownPromise
 }
 
 // GUI harnesses (usesPty: false) drive a desktop app instead of spawning a
@@ -144,14 +151,18 @@ function reportGuiStatus(status: GuiStatus | null): void {
   if (status) guiStatus(status.message, STATUS_TINT[status.tone])
 }
 
-const agent: Pick<AgentPty, 'write' | 'dispose'> = usesPty
+interface AgentHandle {
+  write(bytes: string): void
+  dispose(): void | Promise<void>
+}
+
+const agent: AgentHandle = usesPty
   ? new AgentPty(
       harness.command,
       harness.buildArgs(invocation.agentArgs),
       wrapperId,
       (code) => {
-        shutdown()
-        process.exit(code)
+        void shutdown().finally(() => process.exit(code))
       },
       // Terminal focus changes (window switch, tmux/herdr pane click) go to the
       // host — voice must disengage the moment its terminal is no longer active.
@@ -181,13 +192,11 @@ process.on('SIGINT', () => {
   if (usesPty) {
     agent.write('\x03')
   } else {
-    shutdown()
-    process.exit(130)
+    void shutdown().finally(() => process.exit(130))
   }
 })
 process.on('SIGTERM', () => {
-  shutdown()
-  process.exit(0)
+  void shutdown().finally(() => process.exit(0))
 })
 
 if (!isHost) {

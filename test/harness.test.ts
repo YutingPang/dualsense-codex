@@ -376,8 +376,8 @@ describe('codex-app harness', () => {
     )
   })
 
-  it('releases all held keys on dispose', () => {
-    codexAppHarness.dispose?.()
+  it('releases all held keys on dispose', async () => {
+    await codexAppHarness.dispose?.()
     expect(execFileSync).toHaveBeenCalledWith(
       'osascript',
       expect.arrayContaining([
@@ -387,6 +387,25 @@ describe('codex-app harness', () => {
       ]),
       { timeout: 3000 },
     )
+  })
+
+  it('waits for the in-flight chord before releasing keys on dispose', async () => {
+    const callbacks: Array<() => void> = []
+    execFile.mockImplementation((...args: unknown[]) => {
+      const callback = args[args.length - 1] as (err: Error | null) => void
+      callbacks.push(() => callback(null, '', ''))
+    })
+
+    codexAppHarness.execute?.('osascript:key down control\nkey up control')
+    await new Promise((resolve) => setImmediate(resolve)) // let the chord start
+    const disposal = codexAppHarness.dispose?.()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    // Releasing now would let the running chord's key-down land afterwards.
+    expect(execFileSync).not.toHaveBeenCalled()
+    callbacks[0]?.()
+    await disposal
+    expect(execFileSync).toHaveBeenCalled()
   })
 
   it('ignores untagged bytes', () => {

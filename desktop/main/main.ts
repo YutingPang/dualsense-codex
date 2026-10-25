@@ -1,10 +1,12 @@
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Tray } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron'
+import type { NativeImage } from 'electron'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { devices } from 'node-hid'
 import { loadConfig, saveConfig, validateConfig } from '../../src/layers.js'
+import { logger } from '../../src/logger.js'
 import type { ApplyConfigRequest, ConfigEnvelope, DesktopSnapshot } from '../shared/contracts.js'
 import { IPC } from '../shared/contracts.js'
 import { DesktopRuntime } from './runtime.js'
@@ -43,6 +45,8 @@ let runtime: DesktopRuntime | null = null
 let chatGptRunning = false
 let chatGptPoll: ReturnType<typeof setInterval> | null = null
 let lastTrayStateKey: string | null = null
+let quitAfterShutdown = false
+let shutdownComplete = false
 
 function notifySnapshot(): void {
   updateTrayPresentation()
@@ -135,6 +139,45 @@ function currentTrayState(): TrayState {
   }
 }
 
+/**
+ * Build the menu-bar image (18px + 36px Retina representation).
+ *
+ * The assets are PNGs: Electron returns an empty image for SVG data URLs and
+ * `new Tray(emptyImage)` still succeeds, so an SVG here leaves the menu bar
+ * blank. See desktop/main/tray-icons.ts.
+ */
+function trayImage(controllerConnected: boolean): NativeImage {
+  const image = nativeImage.createFromDataURL(trayIconDataUrl(controllerConnected, 1))
+  try {
+    image.addRepresentation({
+      scaleFactor: 2,
+      dataURL: trayIconDataUrl(controllerConnected, 2),
+    })
+  } catch (error) {
+    logger.warn('could not add the 2x tray icon representation', error)
+  }
+  image.setTemplateImage(true)
+  return image
+}
+
+/**
+ * Apply the tray image, falling back to a short text title if decoding fails.
+ *
+ * A menu-bar app with an invisible icon is unreachable; a text fallback keeps
+ * the settings window and Quit reachable even after an asset regression.
+ */
+function applyTrayImage(controllerConnected: boolean): void {
+  if (!tray) return
+  const image = trayImage(controllerConnected)
+  if (image.isEmpty()) {
+    tray.setTitle('DS')
+    logger.error('tray icon could not be decoded; using the text fallback')
+    return
+  }
+  tray.setTitle('')
+  tray.setImage(image)
+}
+
 function updateTrayMenu(state: TrayState): void {
   if (!tray) return
   tray.setContextMenu(
@@ -171,9 +214,7 @@ function updateTrayPresentation(): void {
   if (stateKey === lastTrayStateKey) return
 
   lastTrayStateKey = stateKey
-  const trayIcon = nativeImage.createFromDataURL(trayIconDataUrl(state.controllerConnected))
-  trayIcon.setTemplateImage(true)
-  tray.setImage(trayIcon)
+  applyTrayImage(state.controllerConnected)
   tray.setToolTip(trayTooltip(state))
   updateTrayMenu(state)
 }
@@ -210,6 +251,14 @@ function showMainWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
+  mainWindow.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (!isMainFrame) return
+    logger.error('settings window failed to load', { code, description, url })
+    dialog.showErrorBox(
+      'DualSense for Codex',
+      `The settings window failed to load (${code} ${description}).\n\nLog: ~/.openmicro/openmicro.log`,
+    )
+  })
 
   if (windowViteDevServerUrl) {
     void mainWindow.loadURL(windowViteDevServerUrl)
@@ -218,20 +267,53 @@ function showMainWindow(): void {
   }
 }
 
+function destroyTray(): void {
+  tray?.destroy()
+  tray = null
+  lastTrayStateKey = null
+}
+
 const hasLock = app.requestSingleInstanceLock()
 if (!hasLock) {
   app.quit()
 } else {
   app.on('second-instance', () => showMainWindow())
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
     quitting = true
+    if (shutdownComplete) {
+      destroyTray()
+      return
+    }
     if (chatGptPoll) clearInterval(chatGptPoll)
     chatGptPoll = null
-    tray?.destroy()
-    tray = null
-    lastTrayStateKey = null
-    runtime?.stop()
+
+    const activeRuntime = runtime
     runtime = null
+    if (!activeRuntime) {
+      destroyTray()
+      return
+    }
+    if (quitAfterShutdown) {
+      // A second Quit while the harness is draining must not skip the wait.
+      event.preventDefault()
+      return
+    }
+
+    // The GUI harness may still own synthetic key chords. Wait for its
+    // cancellation/drain (bounded) before the process exits, so Quit can never
+    // strand a modifier key machine-wide. See codex-app dispose().
+    event.preventDefault()
+    quitAfterShutdown = true
+    const timeout = new Promise<void>((resolve) => {
+      setTimeout(resolve, 6000).unref?.()
+    })
+    void Promise.race([activeRuntime.stop(), timeout])
+      .catch((error: unknown) => logger.warn('runtime shutdown failed', error))
+      .finally(() => {
+        shutdownComplete = true
+        destroyTray()
+        app.quit()
+      })
   })
   app.on('window-all-closed', () => {
     // The menu-bar app remains available until the user chooses Quit.
@@ -261,7 +343,7 @@ if (!hasLock) {
     return { config, revision: configRevision(config) }
   })
 
-  void app.whenReady().then(() => {
+  function startCompanion(): void {
     runtime = new DesktopRuntime(readConfig().config, {
       onStateChange: notifySnapshot,
       onPlayStation: wakeChatGpt,
@@ -275,13 +357,29 @@ if (!hasLock) {
     })
     refreshChatGptPresence()
     chatGptPoll = setInterval(refreshChatGptPresence, 1500)
-    const trayIcon = nativeImage.createFromDataURL(
-      trayIconDataUrl(currentTrayState().controllerConnected),
-    )
-    trayIcon.setTemplateImage(true)
-    tray = new Tray(trayIcon)
+    tray = new Tray(trayImage(currentTrayState().controllerConnected))
     tray.on('click', () => showMainWindow())
     updateTrayPresentation()
     if (!app.getLoginItemSettings().wasOpenedAtLogin) showMainWindow()
-  })
+  }
+
+  // Without this catch, an invalid config or a missing native prebuild leaves
+  // no window, no tray, and no diagnosis: the process stays alive invisibly.
+  void app
+    .whenReady()
+    .then(startCompanion)
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('DualSense for Codex failed to start:', message)
+      logger.error('desktop startup failed', error)
+      try {
+        dialog.showErrorBox(
+          'DualSense for Codex could not start',
+          `${message}\n\nConfig: ~/.openmicro/config.json\nLog: ~/.openmicro/openmicro.log`,
+        )
+      } catch {
+        // The dialog needs a ready app; stderr above still reports the failure.
+      }
+      app.quit()
+    })
 }

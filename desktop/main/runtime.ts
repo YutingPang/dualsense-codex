@@ -145,18 +145,23 @@ export class DesktopRuntime {
     }
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (!this.started) return
     this.started = false
     if (this.feedbackTimer) clearTimeout(this.feedbackTimer)
     this.feedbackTimer = null
     if (this.statusHost) this.statusServer?.close()
     this.statusHost = false
-    this.releaseOutput()
+    this.releaseHeldEffects()
     this.controller.removeListener('data', this.handleEvent)
     this.controller.stop()
     this.connected = false
     this.onStateChange()
+    // The GUI harness cancels queued synthetic chords and releases held keys;
+    // quitting must wait for that or a late `key down` strands a modifier.
+    await this.disposeHarness().catch((error: unknown) =>
+      logger.warn('harness cleanup failed', error),
+    )
   }
 
   setPaused(paused: boolean): void {
@@ -242,10 +247,21 @@ export class DesktopRuntime {
   }
 
   private releaseOutput(): void {
+    this.releaseHeldEffects()
+    void this.disposeHarness().catch((error: unknown) =>
+      logger.warn('harness cleanup failed', error),
+    )
+  }
+
+  /** Stop timers/repeats and forget touch state (no harness I/O). */
+  private releaseHeldEffects(): void {
     this.stopHaptics()
     this.repeater.releaseAll()
     this.touchpad.reset()
-    this.harness.dispose?.()
+  }
+
+  private async disposeHarness(): Promise<void> {
+    await this.harness.dispose?.()
   }
 
   private resetRouter(): void {

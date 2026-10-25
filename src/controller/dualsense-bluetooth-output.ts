@@ -1,4 +1,4 @@
-import { computeBluetoothReportChecksum, NodeHIDProvider } from 'dualsense-ts'
+import { computeBluetoothReportChecksum, HIDProvider, NodeHIDProvider } from 'dualsense-ts'
 
 const BLUETOOTH_REPORT_ID = 0x31
 const BLUETOOTH_REPORT_LENGTH = 78
@@ -66,6 +66,25 @@ export function buildDualSenseBluetoothLedRelease(sequence: number): Uint8Array 
  */
 export class OpenMicroDualSenseHIDProvider extends NodeHIDProvider {
   private outputSequence = 0
+
+  /**
+   * Point dualsense-ts at the detected DualSense product id.
+   *
+   * dualsense-ts's NodeHIDProvider enumerates devices by a *static* product id
+   * (0x0ce6, the standard DualSense). The Edge (0x0df2) therefore looks
+   * present to node-hid but is invisible to connect(), which is why selecting
+   * the DualSense driver for an Edge used to leave the app with no input and
+   * no retry. The field is declared readonly in the typings but read from the
+   * class object at connect() time, so assigning it here is the only way to
+   * support the Edge without forking the library.
+   *
+   * Args:
+   *     productId (number): Detected DualSense PID. Defaults to 0x0ce6.
+   */
+  constructor(productId: number = 0x0ce6) {
+    super()
+    ;(HIDProvider as unknown as { productId: number }).productId = productId
+  }
 
   override async connect(): Promise<void> {
     this.outputSequence = 0

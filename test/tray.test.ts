@@ -1,25 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { trayIconDataUrl, trayIconSvg, trayStateKey, trayTooltip } from '../desktop/main/tray.js'
+import { trayIconDataUrl, trayIconPng, trayStateKey, trayTooltip } from '../desktop/main/tray.js'
+import type { TrayIconScale } from '../desktop/main/tray.js'
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/** Read width/height from a PNG's IHDR chunk; null when this is not a PNG. */
+function pngSize(buffer: Buffer): { width: number; height: number } | null {
+  if (buffer.length < 24) return null
+  if (!buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return null
+  if (buffer.toString('ascii', 12, 16) !== 'IHDR') return null
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+}
 
 describe('tray presentation', () => {
-  it('uses an outline icon when the controller is disconnected', () => {
-    const icon = trayIconSvg(false)
-
-    expect(icon).toContain('fill="none"')
-    expect(icon).toContain('stroke="black"')
-    expect(icon).not.toContain('fill-rule="evenodd"')
+  // Regression: these used to be SVG data URLs. Electron's nativeImage returns
+  // an empty 0x0 image for those while `new Tray()` still succeeds, leaving the
+  // menu-bar app invisible.
+  it('returns decodable 18px PNGs for both controller states', () => {
+    for (const connected of [true, false]) {
+      const png = trayIconPng(connected)
+      expect(pngSize(png), 'menu-bar icon must be a PNG').toEqual({ width: 18, height: 18 })
+      expect(trayIconDataUrl(connected)).toMatch(/^data:image\/png;base64,/)
+    }
   })
 
-  it('uses a filled icon when the controller is connected', () => {
-    const icon = trayIconSvg(true)
-
-    expect(icon).toContain('fill-rule="evenodd"')
-    expect(icon).not.toContain('stroke="black"')
+  it('provides a 36px Retina representation', () => {
+    for (const connected of [true, false]) {
+      expect(pngSize(trayIconPng(connected, 2))).toEqual({ width: 36, height: 36 })
+    }
   })
 
-  it('returns an encoded SVG data URL for Electron nativeImage', () => {
-    expect(trayIconDataUrl(true)).toMatch(/^data:image\/svg\+xml;charset=utf-8,/)
-    expect(trayIconDataUrl(true)).toContain('%3Csvg')
+  it('makes connected and disconnected states visually distinct', () => {
+    expect(trayIconPng(true).equals(trayIconPng(false))).toBe(false)
+    expect(trayIconDataUrl(true)).not.toBe(trayIconDataUrl(false))
+    expect(trayIconDataUrl(true, 2)).not.toBe(trayIconDataUrl(true, 1))
+  })
+
+  it('accepts every scale without changing the type', () => {
+    const scales: TrayIconScale[] = [1, 2]
+    for (const scale of scales) {
+      expect(trayIconPng(true, scale).subarray(1, 4).toString('ascii')).toBe('PNG')
+    }
   })
 
   it('keeps controller and ChatGPT state independent in the tooltip', () => {

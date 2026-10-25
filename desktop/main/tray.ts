@@ -1,10 +1,19 @@
 /**
  * macOS menu-bar presentation for the desktop companion.
  *
- * These are deliberately monochrome template SVGs. macOS applies the correct
- * foreground color for light and dark menu bars, while the geometry itself
- * communicates whether the controller is connected.
+ * Icons are PNG template images generated into tray-icons.ts. Electron's
+ * nativeImage cannot decode SVG data URLs — it silently returns an empty 0x0
+ * image, and `new Tray(emptyImage)` still succeeds, which made the menu-bar
+ * item invisible. Keep the raster path here; the shape generator lives in
+ * scripts/gen-tray-icons.py.
  */
+
+import {
+  TRAY_ICON_CONNECTED_1X,
+  TRAY_ICON_CONNECTED_2X,
+  TRAY_ICON_DISCONNECTED_1X,
+  TRAY_ICON_DISCONNECTED_2X,
+} from './tray-icons.js'
 
 export interface TrayState {
   controllerConnected: boolean
@@ -12,27 +21,42 @@ export interface TrayState {
   paused: boolean
 }
 
-const CONTROLLER_PATH =
-  'M4 5.5h10c.7 0 1.3.4 1.6 1l1.7 3.5c.5 1.1.3 2.4-.5 3.3l-.1.1c-.9.9-2.4.7-3-.4L12.6 12H5.4l-1.1 1c-.6 1.1-2.1 1.3-3 .4l-.1-.1c-.8-.9-1-2.2-.5-3.3l1.7-3.5c.3-.6.9-1 1.6-1Z'
+/** 1 = 18px menu-bar asset, 2 = 36px Retina representation. */
+export type TrayIconScale = 1 | 2
 
-const CONTROLLER_DETAILS =
-  'M5 7.2h1.5v1.5H8v1.5H6.5v1.5H5v-1.5H3.5V8.7H5V7.2Zm8.2 1.1a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Zm2 1.4a.8.8 0 1 0 0 1.6.8.8 0 0 0 0-1.6Z'
-
-const OUTLINE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-  <path d="${CONTROLLER_PATH}" fill="none" stroke="black" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="${CONTROLLER_DETAILS}" fill="black"/>
-</svg>`
-
-const FILLED_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-  <path d="${CONTROLLER_PATH} ${CONTROLLER_DETAILS}" fill="black" fill-rule="evenodd"/>
-</svg>`
-
-export function trayIconSvg(controllerConnected: boolean): string {
-  return controllerConnected ? FILLED_ICON : OUTLINE_ICON
+/**
+ * Decode the generated PNG for the current controller state.
+ *
+ * Args:
+ *     controllerConnected (boolean): True when the runtime owns a controller.
+ *     scale (TrayIconScale): 1 for the 18px asset, 2 for the 36px asset.
+ *
+ * Returns:
+ *     Buffer: PNG bytes, ready for nativeImage.createFromBuffer/dataURL.
+ */
+export function trayIconPng(controllerConnected: boolean, scale: TrayIconScale = 1): Buffer {
+  const encoded = controllerConnected
+    ? scale === 2
+      ? TRAY_ICON_CONNECTED_2X
+      : TRAY_ICON_CONNECTED_1X
+    : scale === 2
+      ? TRAY_ICON_DISCONNECTED_2X
+      : TRAY_ICON_DISCONNECTED_1X
+  return Buffer.from(encoded, 'base64')
 }
 
-export function trayIconDataUrl(controllerConnected: boolean): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(trayIconSvg(controllerConnected))}`
+/**
+ * Data URL for the generated PNG. Always `image/png` — never SVG.
+ *
+ * Args:
+ *     controllerConnected (boolean): True when the runtime owns a controller.
+ *     scale (TrayIconScale): 1 for the 18px asset, 2 for the 36px asset.
+ *
+ * Returns:
+ *     string: `data:image/png;base64,...` URL accepted by nativeImage.
+ */
+export function trayIconDataUrl(controllerConnected: boolean, scale: TrayIconScale = 1): string {
+  return `data:image/png;base64,${trayIconPng(controllerConnected, scale).toString('base64')}`
 }
 
 export function trayTooltip(state: TrayState): string {

@@ -49,6 +49,11 @@ export interface Harness {
   scrollPointer?(dx: number, dy: number): void
   /** Optional primary system-pointer click for a controller touchpad press. */
   clickPointer?(): void
-  /** Shutdown cleanup for usesPty:false harnesses — must undo any lingering system side effects (e.g. release synthetic keys still held down). */
-  dispose?(): void
+  /**
+   * Release lingering system side effects (e.g. synthetic keys still held).
+   * May be async: quitting must wait for queued chords to drain before the
+   * process exits, or a late `key down` can strand a modifier machine-wide.
+   * Called on pause/resume too, so implementations must be reusable.
+   */
+  dispose?(): void | Promise<void>
 }

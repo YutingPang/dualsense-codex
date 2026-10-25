@@ -105,6 +105,47 @@ describe('DesktopRuntime', () => {
     expect(dispose).toHaveBeenCalledTimes(2)
   })
 
+  it('waits for async harness cleanup before stop resolves', async () => {
+    const controller = new FakeController()
+    let finish: () => void = () => {}
+    const dispose = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const harness: Harness = {
+      kind: 'codex-app',
+      usesPty: false,
+      command: 'open',
+      buildArgs: () => [],
+      installHooks: () => ({ changed: false, trustNotice: null }),
+      stateForHookEvent: () => null,
+      resolveAction: () => null,
+      execute: vi.fn(),
+      dispose,
+    }
+    const runtime = new DesktopRuntime(structuredClone(DEFAULT_CONFIG), {
+      controller,
+      harness,
+      statusServer: null,
+    })
+    runtime.start()
+
+    let settled = false
+    const stopping = runtime.stop().then(() => {
+      settled = true
+    })
+    await Promise.resolve()
+
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(settled).toBe(false) // still waiting for queued chords to drain
+
+    finish()
+    await stopping
+    expect(settled).toBe(true)
+  })
+
   it('keeps the PlayStation key out of normal bindings and forwards its press to wake Codex', () => {
     const controller = new FakeController()
     const onPlayStation = vi.fn()

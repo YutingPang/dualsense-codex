@@ -10,10 +10,15 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { installCodexHooks } from '../hooks-install.js'
+import { ChordQueue } from '../chord-queue.js'
 import { appleScriptShortcutSteps } from '../keyboard-shortcut.js'
 import { logger } from '../logger.js'
 import { codexHarness } from './codex.js'
 import type { Action, AgentState, Harness } from './types.js'
+
+// Activate by bundle id, not by app name: the Codex app now ships as ChatGPT,
+// and `tell application "Codex"` fails on installs that only have ChatGPT.app.
+const CODEX_APP = 'application id "com.openai.codex"'
 
 // Terminal byte sequences with a System Events equivalent — lets the default
 // layer's `keys` bindings (d-pad arrows, Shift+Tab clear/cycle, Ctrl+U) drive
@@ -56,9 +61,10 @@ const RELEASE_ALL: string[] = [
 ]
 
 // Chords must run strictly one at a time — two concurrent osascripts can
-// interleave their key down/up steps and strand a modifier. execFile timeout
-// bounds a hung osascript so the queue always drains.
-let osascriptQueue: Promise<void> = Promise.resolve()
+// interleave their key down/up steps and strand a modifier. The queue is
+// cancellable so pause/apply/quit can drop chords that have not started yet;
+// dispose() waits for the in-flight one before releasing keys.
+const osascriptQueue = new ChordQueue()
 
 // CoreGraphics has no Node API and AppleScript cannot move the pointer. Keep a
 // tiny Swift/CoreGraphics process alive and stream relative deltas to it; Swift
@@ -124,7 +130,7 @@ const PASTE_PROMPT_SCRIPT = `on run argv
     set oldClipboard to the clipboard
   end try
   set the clipboard to promptText
-  tell application "Codex" to activate
+  tell ${CODEX_APP} to activate
   delay 0.15
   tell application "System Events" to keystroke "v" using command down
   delay 0.1
@@ -135,7 +141,7 @@ function enqueueOsascript(
   args: string[],
   done: (err: Error | null, stderr?: string) => void,
 ): void {
-  osascriptQueue = osascriptQueue.then(
+  osascriptQueue.run(
     () =>
       new Promise<void>((resolve) => {
         execFile('osascript', args, { timeout: 5000 }, (err, _stdout, stderr) => {
@@ -439,7 +445,7 @@ export const codexAppHarness: Harness = {
       // The short delay lets activation land before the keystroke — without it
       // a keypress sent while Codex is still coming frontmost is dropped.
       enqueueOsascript(
-        ['-e', 'tell application id "com.openai.codex" to activate', '-e', 'delay 0.15', ...steps],
+        ['-e', `tell ${CODEX_APP} to activate`, '-e', 'delay 0.15', ...steps],
         (err, stderr) => {
           report(err, stderr)
           // A failed/timed-out chord may have landed its `key down` steps but
@@ -463,7 +469,11 @@ export const codexAppHarness: Harness = {
     sendPointerCommand('click', 0, 0)
   },
 
-  dispose(): void {
+  async dispose(): Promise<void> {
+    // Drop chords that have not started and wait for the in-flight one: a
+    // queued `key down` must never land after releaseAllKeys(), or it strands
+    // a modifier machine-wide. Reusable — the desktop calls this on pause too.
+    await osascriptQueue.cancel()
     releaseAllKeys()
     pointerHelper?.kill()
     pointerHelper = null

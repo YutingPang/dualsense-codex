@@ -16,6 +16,16 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
   private controller: Dualsense | null = null
   private provider: OpenMicroDualSenseHIDProvider | null = null
 
+  /**
+   * Args:
+   *     productId (number): Detected DualSense PID (0x0ce6, or 0x0df2 for the
+   *     Edge), forwarded to the provider because dualsense-ts enumerates a
+   *     fixed product id.
+   */
+  constructor(private readonly productId: number = 0x0ce6) {
+    super()
+  }
+
   // dualsense-ts runs a 30 Hz output loop internally: it diffs lightbar/LED
   // state against what was last sent and pushes a HID feature report only on
   // change, handling USB vs Bluetooth report framing (and BT checksum)
@@ -32,7 +42,7 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
 
   start(): void {
     try {
-      const provider = (this.provider = new OpenMicroDualSenseHIDProvider())
+      const provider = (this.provider = new OpenMicroDualSenseHIDProvider(this.productId))
       const c = (this.controller = new Dualsense({ hid: new DualsenseHID(provider) }))
 
       c.connection.on('change', (input: Momentary) => {
@@ -125,9 +135,21 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
       })
 
       logger.info('DualSenseDriver started')
-      void provider.connect()
+      // The provider's connect() normally reports failures through onError,
+      // but the Bluetooth LED-release write can reject. Surface that as a
+      // disconnect so HidManager retries instead of holding a dead driver.
+      void provider.connect().catch((err: unknown) => {
+        logger.error('DualSense connect failed', err)
+        this.emit('data', { kind: 'disconnected' } satisfies ControllerEvent)
+      })
     } catch (err) {
       logger.error('DualSenseDriver start failed', err)
+      this.provider?.disconnect()
+      this.provider = null
+      this.controller = null
+      // HidManager only re-polls after a disconnect event; without this a
+      // failed open left the app permanently controller-less and silent.
+      this.emit('data', { kind: 'disconnected' } satisfies ControllerEvent)
     }
   }
 
