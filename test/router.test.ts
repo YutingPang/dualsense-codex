@@ -186,7 +186,7 @@ describe('LayerRouter: binding lookup', () => {
     const { router, tick } = makeRouter(DEFAULT_CONFIG)
     tick(GUARD_WINDOW_MS + 1)
     expect(router.route(press('south'))).toEqual({ type: 'accept' })
-    expect(router.route(press('east'))).toEqual({ type: 'reject' })
+    expect(router.route(press('east'))).toEqual({ type: 'clear_input' })
     expect(router.route(press('north'))).toEqual({ type: 'push_to_talk' })
     expect(router.route(press('west'))).toEqual({ type: 'new_chat' })
   })

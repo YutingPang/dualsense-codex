@@ -8,6 +8,7 @@ import { loadConfig, saveConfig, validateConfig } from '../../src/layers.js'
 import type { ApplyConfigRequest, ConfigEnvelope, DesktopSnapshot } from '../shared/contracts.js'
 import { IPC } from '../shared/contracts.js'
 import { DesktopRuntime } from './runtime.js'
+import { trayIconDataUrl, trayStateKey, trayTooltip, type TrayState } from './tray.js'
 
 function configRevision(config: unknown): string {
   return createHash('sha256').update(JSON.stringify(config)).digest('hex')
@@ -20,6 +21,13 @@ function readConfig(): ConfigEnvelope {
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined
 declare const MAIN_WINDOW_VITE_NAME: string
+
+const windowViteDevServerUrl =
+  typeof MAIN_WINDOW_VITE_DEV_SERVER_URL === 'undefined'
+    ? undefined
+    : MAIN_WINDOW_VITE_DEV_SERVER_URL
+const windowViteName =
+  typeof MAIN_WINDOW_VITE_NAME === 'undefined' ? 'main_window' : MAIN_WINDOW_VITE_NAME
 
 const DUALSENSE_VENDOR_ID = 0x054c
 const DUALSENSE_PRODUCT_IDS = new Map([
@@ -34,8 +42,10 @@ let quitting = false
 let runtime: DesktopRuntime | null = null
 let chatGptRunning = false
 let chatGptPoll: ReturnType<typeof setInterval> | null = null
+let lastTrayStateKey: string | null = null
 
 function notifySnapshot(): void {
+  updateTrayPresentation()
   mainWindow?.webContents.send(IPC.getSnapshot, snapshot())
 }
 
@@ -117,17 +127,34 @@ function snapshot(): DesktopSnapshot {
   }
 }
 
-function updateTrayMenu(): void {
+function currentTrayState(): TrayState {
+  return {
+    controllerConnected: runtime?.isConnected ?? false,
+    chatGptRunning,
+    paused: runtime?.isPaused ?? manuallyPaused,
+  }
+}
+
+function updateTrayMenu(state: TrayState): void {
   if (!tray) return
   tray.setContextMenu(
     Menu.buildFromTemplate([
+      {
+        label: `Controller: ${state.controllerConnected ? 'Connected' : 'Not connected'}`,
+        enabled: false,
+      },
+      {
+        label: `ChatGPT: ${state.chatGptRunning ? 'Running' : 'Offline'}`,
+        enabled: false,
+      },
+      { type: 'separator' },
       { label: 'Open Settings', click: () => showMainWindow() },
       {
-        label: manuallyPaused ? 'Resume Controller' : 'Pause Controller',
+        label: state.paused ? 'Resume Controller' : 'Pause Controller',
         click: () => {
           manuallyPaused = !manuallyPaused
           runtime?.setPaused(manuallyPaused)
-          updateTrayMenu()
+          updateTrayPresentation()
           mainWindow?.webContents.send(IPC.getSnapshot, snapshot())
         },
       },
@@ -135,6 +162,20 @@ function updateTrayMenu(): void {
       { label: 'Quit DualSense for Codex', click: () => app.quit() },
     ]),
   )
+}
+
+function updateTrayPresentation(): void {
+  if (!tray) return
+  const state = currentTrayState()
+  const stateKey = trayStateKey(state)
+  if (stateKey === lastTrayStateKey) return
+
+  lastTrayStateKey = stateKey
+  const trayIcon = nativeImage.createFromDataURL(trayIconDataUrl(state.controllerConnected))
+  trayIcon.setTemplateImage(true)
+  tray.setImage(trayIcon)
+  tray.setToolTip(trayTooltip(state))
+  updateTrayMenu(state)
 }
 
 function showMainWindow(): void {
@@ -170,10 +211,10 @@ function showMainWindow(): void {
     mainWindow = null
   })
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    void mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
+  if (windowViteDevServerUrl) {
+    void mainWindow.loadURL(windowViteDevServerUrl)
   } else {
-    void mainWindow.loadFile(path.join(dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`))
+    void mainWindow.loadFile(path.join(dirname, `../renderer/${windowViteName}/index.html`))
   }
 }
 
@@ -186,6 +227,9 @@ if (!hasLock) {
     quitting = true
     if (chatGptPoll) clearInterval(chatGptPoll)
     chatGptPoll = null
+    tray?.destroy()
+    tray = null
+    lastTrayStateKey = null
     runtime?.stop()
     runtime = null
   })
@@ -199,7 +243,7 @@ if (!hasLock) {
     if (typeof paused !== 'boolean') throw new TypeError('paused must be a boolean')
     manuallyPaused = paused
     runtime?.setPaused(paused)
-    updateTrayMenu()
+    updateTrayPresentation()
     return snapshot()
   })
   ipcMain.handle(IPC.getConfig, () => readConfig())
@@ -232,16 +276,12 @@ if (!hasLock) {
     refreshChatGptPresence()
     chatGptPoll = setInterval(refreshChatGptPresence, 1500)
     const trayIcon = nativeImage.createFromDataURL(
-      'data:image/svg+xml;charset=utf-8,' +
-        encodeURIComponent(
-          '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18"><path fill="black" d="M4 5h10l3 5v4a2 2 0 0 1-3.4 1.4L12.2 14H5.8l-1.4 1.4A2 2 0 0 1 1 14v-4l3-5Zm2 2v2H4v2h2v2h2v-2h2V9H8V7H6Zm7 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2Zm2 3a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/></svg>',
-        ),
+      trayIconDataUrl(currentTrayState().controllerConnected),
     )
     trayIcon.setTemplateImage(true)
     tray = new Tray(trayIcon)
-    tray.setToolTip('DualSense for Codex')
     tray.on('click', () => showMainWindow())
-    updateTrayMenu()
+    updateTrayPresentation()
     if (!app.getLoginItemSettings().wasOpenedAtLogin) showMainWindow()
   })
 }

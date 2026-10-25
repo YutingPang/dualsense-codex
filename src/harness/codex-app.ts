@@ -10,6 +10,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { installCodexHooks } from '../hooks-install.js'
+import { appleScriptShortcutSteps } from '../keyboard-shortcut.js'
 import { logger } from '../logger.js'
 import { codexHarness } from './codex.js'
 import type { Action, AgentState, Harness } from './types.js'
@@ -358,6 +359,13 @@ export const codexAppHarness: Harness = {
         return { bytes: 'paste:' + Buffer.from(action.text, 'utf8').toString('base64') }
       case 'reject':
         return { bytes: 'osascript:key code 53' } // Esc — stop generation / dismiss
+      case 'clear_input':
+        // Clear the entire unsent composer, including dictated transcript.
+        return { bytes: 'osascript:keystroke "a" using command down\nkey code 51' }
+      case 'keyboard_shortcut': {
+        const steps = appleScriptShortcutSteps(action.code, action.modifiers)
+        return steps ? { bytes: `osascript:${steps.join('\n')}` } : null
+      }
       case 'thinking_depth':
         // The app ships unassigned "Increase/Decrease reasoning effort"
         // shortcuts (Settings → Keyboard shortcuts). Users assign ⌃⌥= and ⌃⌥-
@@ -407,7 +415,7 @@ export const codexAppHarness: Harness = {
       if (!err) return
       logger.warn('codex-app command failed', stderr || err.message)
       console.error(
-        `\x1b[31m●\x1b[0m ${(stderr || err.message).trim()} — if this is a permission error, allow your terminal under System Settings → Privacy & Security → Accessibility and Automation`,
+        `\x1b[31m●\x1b[0m ${(stderr || err.message).trim()} — if this is a permission error, allow the app running OpenMicro (Terminal or DualSense for Codex) under System Settings → Privacy & Security → Accessibility and Automation`,
       )
     }
     if (tag === 'open') {
@@ -422,8 +430,8 @@ export const codexAppHarness: Harness = {
       }
       enqueueOsascript(['-e', PASTE_PROMPT_SCRIPT, '--', text], report)
     } else if (tag === 'osascript') {
-      // System Events keystrokes require the terminal to have Accessibility /
-      // Automation permission. A newline in the payload runs as sequential
+      // System Events keystrokes require the app running OpenMicro to have
+      // Accessibility / Automation permission. A newline in the payload runs as sequential
       // System Events statements (e.g. select-all then delete).
       const steps = payload
         .split('\n')

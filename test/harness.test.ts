@@ -62,6 +62,7 @@ describe('claude harness', () => {
   it('resolves the verified keybindings', () => {
     expect(claudeHarness.resolveAction({ type: 'accept' }, ctx)).toEqual({ bytes: '\r' })
     expect(claudeHarness.resolveAction({ type: 'reject' }, ctx)).toEqual({ bytes: '\x1b' })
+    expect(claudeHarness.resolveAction({ type: 'clear_input' }, ctx)).toEqual({ bytes: '\x15' })
     expect(claudeHarness.resolveAction({ type: 'push_to_talk' }, ctx)).toEqual({ bytes: ' ' })
     expect(claudeHarness.resolveAction({ type: 'new_chat' }, ctx)).toEqual({ bytes: '/clear\r' })
     expect(claudeHarness.resolveAction({ type: 'prompt', text: 'hi' }, ctx)).toEqual({
@@ -118,6 +119,7 @@ describe('codex harness', () => {
   it('resolves verified keybindings and returns null for documented gaps', () => {
     expect(codexHarness.resolveAction({ type: 'accept' }, ctx)).toEqual({ bytes: '\r' })
     expect(codexHarness.resolveAction({ type: 'reject' }, ctx)).toEqual({ bytes: '\x1b' })
+    expect(codexHarness.resolveAction({ type: 'clear_input' }, ctx)).toEqual({ bytes: '\x15' })
     expect(codexHarness.resolveAction({ type: 'new_chat' }, ctx)).toEqual({ bytes: '/new\r' })
     expect(codexHarness.resolveAction({ type: 'prompt', text: 'hi' }, ctx)).toEqual({
       bytes: 'hi\r',
@@ -178,6 +180,15 @@ describe('codex-app harness', () => {
     expect(codexAppHarness.resolveAction({ type: 'reject' }, ctx)).toEqual({
       bytes: 'osascript:key code 53',
     })
+    expect(codexAppHarness.resolveAction({ type: 'clear_input' }, ctx)).toEqual({
+      bytes: 'osascript:keystroke "a" using command down\nkey code 51',
+    })
+    expect(
+      codexAppHarness.resolveAction(
+        { type: 'keyboard_shortcut', code: 'KeyK', modifiers: ['command'] },
+        ctx,
+      ),
+    ).toEqual({ bytes: 'osascript:key down command\nkey code 40\nkey up command' })
     expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[A' }, ctx)).toEqual({
       bytes: 'osascript:key code 126',
     })

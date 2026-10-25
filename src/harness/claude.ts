@@ -62,6 +62,8 @@ export const claudeHarness: Harness = {
         return { bytes: '\r' } // Enter submits the prompt / accepts the highlighted dialog option
       case 'reject':
         return { bytes: '\x1b' } // Esc interrupts Claude / closes a dialog
+      case 'clear_input':
+        return { bytes: '\x15' } // Ctrl+U clears the unsent input line
       case 'push_to_talk':
         return { bytes: ' ' } // Space = hold-to-dictate (docs "Voice input", requires voice dictation enabled)
       case 'new_chat':

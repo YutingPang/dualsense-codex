@@ -26,6 +26,7 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
     return {
       setLightbar: (color) => c.lightbar.set(color),
       setPlayerLeds: (bitmask) => c.playerLeds.set(bitmask),
+      setRumble: (intensity) => c.rumble(intensity),
     }
   }
 

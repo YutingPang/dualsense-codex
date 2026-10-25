@@ -1,6 +1,8 @@
 import { StrictMode, useEffect, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import { createRoot } from 'react-dom/client'
-import type { Action } from '../../src/harness/types.js'
+import type { Action, KeyboardModifier } from '../../src/harness/types.js'
+import { keyboardShortcutLabel, macKeyCodeForDomCode } from '../../src/keyboard-shortcut.js'
 import type {
   ConfigEnvelope,
   ControlId,
@@ -46,6 +48,7 @@ function App() {
   const [layerIndex, setLayerIndex] = useState(0)
   const [control, setControl] = useState<ControlId>('south')
   const [saving, setSaving] = useState(false)
+  const [capturingShortcut, setCapturingShortcut] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = (operation: Promise<DesktopSnapshot>) => {
@@ -88,12 +91,14 @@ function App() {
   }
 
   const changeActionType = (type: EditableActionType) => {
+    setCapturingShortcut(false)
     switch (type) {
       case 'none':
         updateBinding(null)
         break
       case 'accept':
       case 'reject':
+      case 'clear_input':
       case 'push_to_talk':
       case 'new_chat':
       case 'herdr_space':
@@ -117,7 +122,31 @@ function App() {
       case 'keys':
         updateBinding({ type, bytes: '' })
         break
+      case 'keyboard_shortcut':
+        updateBinding({ type, code: 'KeyA', modifiers: [] })
+        break
     }
+  }
+
+  const captureShortcutKey = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!capturingShortcut) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return
+
+    if (macKeyCodeForDomCode(event.code) === null) {
+      setError(`“${event.key}” is not supported as a keyboard shortcut key yet.`)
+      setCapturingShortcut(false)
+      return
+    }
+
+    const modifiers: KeyboardModifier[] = []
+    if (event.metaKey) modifiers.push('command')
+    if (event.ctrlKey) modifiers.push('control')
+    if (event.altKey) modifiers.push('option')
+    if (event.shiftKey) modifiers.push('shift')
+    updateBinding({ type: 'keyboard_shortcut', code: event.code, modifiers })
+    setCapturingShortcut(false)
   }
 
   const apply = () => {
@@ -186,7 +215,10 @@ function App() {
                 <button
                   className={index === layerIndex ? 'selected' : ''}
                   key={index}
-                  onClick={() => setLayerIndex(index)}
+                  onClick={() => {
+                    setCapturingShortcut(false)
+                    setLayerIndex(index)
+                  }}
                 >
                   <span
                     className="layer-color"
@@ -206,7 +238,10 @@ function App() {
                 <button
                   className={item.id === control ? 'selected' : ''}
                   key={item.id}
-                  onClick={() => setControl(item.id)}
+                  onClick={() => {
+                    setCapturingShortcut(false)
+                    setControl(item.id)
+                  }}
                 >
                   {item.label}
                 </button>
@@ -225,6 +260,8 @@ function App() {
                 <option value="none">Unassigned</option>
                 <option value="accept">Enter / confirm</option>
                 <option value="reject">Escape / cancel</option>
+                <option value="clear_input">Clear all input</option>
+                <option value="keyboard_shortcut">Keyboard key / shortcut</option>
                 <option value="new_chat">New task</option>
                 <option value="push_to_talk">Hold to talk</option>
                 <option value="prompt">Insert prompt text</option>
@@ -295,6 +332,27 @@ function App() {
                   value={binding.bytes}
                   onChange={(event) => updateBinding({ ...binding, bytes: event.target.value })}
                 />
+              </label>
+            )}
+            {binding?.type === 'keyboard_shortcut' && (
+              <label>
+                Keyboard key or combination
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null)
+                    setCapturingShortcut(true)
+                  }}
+                  onKeyDown={captureShortcutKey}
+                >
+                  {capturingShortcut
+                    ? 'Press a key or combination…'
+                    : `Record shortcut (${keyboardShortcutLabel(binding.code, binding.modifiers)})`}
+                </button>
+                <span className="hint">
+                  Click to record a key or combo such as ⌘ K or ⌃ ⇧ M. It will be sent to the
+                  foreground app.
+                </span>
               </label>
             )}
           </div>

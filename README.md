@@ -16,7 +16,7 @@ openmicro codex
 openmicro codex-app # drive the Codex macOS desktop app
 ```
 
-`openmicro codex-app` drives the Codex desktop app instead of a terminal CLI: new chat uses a `codex://` deep link, while workflow prompts paste into the current task's composer. Submit (Enter), reject (Esc), dictation (Ctrl+Shift+D), d-pad arrows, prompt paste, and Ctrl+U need Accessibility permission for your terminal. A stick-flick prompt prefills the current composer; press submit to send it. The app launches automatically and the terminal shows live status (controller, actions, agent state).
+`openmicro codex-app` drives the Codex desktop app instead of a terminal CLI: new chat uses a `codex://` deep link, while workflow prompts paste into the current task's composer. Submit (Enter), reject (Esc), dictation (Ctrl+Shift+D), d-pad arrows, prompt paste, Ctrl+U, and recorded keyboard shortcuts need macOS Accessibility/Automation permission for the process running OpenMicro (Terminal for the CLI, DualSense for Codex for the companion). In the desktop companion, choose **Keyboard key / shortcut**, click **Record shortcut**, and press a key or combination such as ⌘K; it is sent to the foreground app. A stick-flick prompt prefills the current composer; press submit to send it. The app launches automatically and the terminal shows live status (controller, actions, agent state).
 
 The thinking-depth dial (right-stick flicks) needs one-time setup: the app ships "Increase reasoning effort" and "Decrease reasoning effort" shortcuts unassigned, and assignments are account-synced so OpenMicro cannot set them for you. In the Codex app open Settings → Keyboard shortcuts, search "effort", and assign Increase to `⌃⌥=` (Control+Option+`=`, Ctrl+Alt on Windows) and Decrease to `⌃⌥-` — right-stick flicks then step the composer's reasoning effort. These chords avoid the app's Ctrl/Cmd `+`/`-` zoom shortcuts. Note the app's own Decrease shortcut stops one step short of the lowest effort level (also when pressed physically) — use the model picker for that. Optionally also assign "Open model picker" to `⌃⇧M` — right-stick click then opens the picker so you can watch the effort change. Assigned different chords? Remap `thinking_depth` in your OpenMicro config to matching `keys` bindings.
 
@@ -35,7 +35,7 @@ Controller support depends on the exact device and connection. Check the [contro
 | Control                                   | Action                                                       |
 | ----------------------------------------- | ------------------------------------------------------------ |
 | south (✕ / A)                             | Submit or confirm                                            |
-| east (○ / B)                              | Interrupt or dismiss                                         |
+| east (○ / B)                              | Clear all unsent input, including dictated text              |
 | north (△ / Y)                             | Push-to-talk                                                 |
 | west (□ / X)                              | Start a new chat                                             |
 | d-pad                                     | Navigate TUI menus; repeats while held                       |

@@ -12,6 +12,7 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { RGB } from './feedback.js'
 import type { Action } from './harness/types.js'
+import { macKeyCodeForDomCode } from './keyboard-shortcut.js'
 import type { ButtonId } from './types.js'
 
 export type StickControlId =
@@ -84,6 +85,12 @@ const rgbSchema = z.object({ r: rgbChannelSchema, g: rgbChannelSchema, b: rgbCha
 const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('accept') }),
   z.object({ type: z.literal('reject') }),
+  z.object({ type: z.literal('clear_input') }),
+  z.object({
+    type: z.literal('keyboard_shortcut'),
+    code: z.string().min(1),
+    modifiers: z.array(z.enum(['command', 'control', 'option', 'shift'])).max(4),
+  }),
   z.object({ type: z.literal('push_to_talk') }),
   z.object({ type: z.literal('new_chat') }),
   z.object({ type: z.literal('thinking_depth'), delta: z.union([z.literal(1), z.literal(-1)]) }),
@@ -117,6 +124,13 @@ const configSchema = z
   .superRefine((config, context) => {
     config.layers.forEach((layer, layerIndex) => {
       Object.entries(layer.bindings).forEach(([control, action]) => {
+        if (action.type === 'keyboard_shortcut' && macKeyCodeForDomCode(action.code) === null) {
+          context.addIssue({
+            code: 'custom',
+            path: ['layers', layerIndex, 'bindings', control, 'code'],
+            message: 'keyboard shortcut uses an unsupported key',
+          })
+        }
         if (action.type === 'workflow' && !(action.presetId in config.workflows)) {
           context.addIssue({
             code: 'custom',
@@ -165,7 +179,7 @@ export const DEFAULT_CONFIG: OpenMicroConfig = {
       color: LAYER_COLORS[0]!,
       bindings: {
         south: { type: 'accept' },
-        east: { type: 'reject' },
+        east: { type: 'clear_input' },
         north: { type: 'push_to_talk' },
         west: { type: 'new_chat' },
         dpad_up: { type: 'keys', bytes: '\x1b[A' },

@@ -5,10 +5,13 @@
 // any third-party kind — a Harness with a novel `kind` compiles without a cast.
 export type AgentKind = 'claude' | 'codex' | (string & {})
 export type AgentState = 'executing' | 'waiting' | 'idle' | 'complete' | 'error'
+export type KeyboardModifier = 'command' | 'control' | 'option' | 'shift'
 
 export type Action =
   | { type: 'accept' }
   | { type: 'reject' }
+  | { type: 'clear_input' }
+  | { type: 'keyboard_shortcut'; code: string; modifiers: KeyboardModifier[] }
   | { type: 'push_to_talk'; pressed?: boolean } // pressed set by the cli for GUI hold-to-talk (true = button down, false = up); absent for pty toggle harnesses
   | { type: 'new_chat' }
   | { type: 'thinking_depth'; delta: 1 | -1 }

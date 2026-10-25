@@ -3,14 +3,32 @@ import { describe, expect, it, vi } from 'vitest'
 import { DesktopRuntime } from '../desktop/main/runtime.js'
 import type { Harness } from '../src/harness/types.js'
 import { DEFAULT_CONFIG } from '../src/layers.js'
+import { SessionTracker } from '../src/state.js'
+import type { Aggregate } from '../src/state.js'
 import type { ControllerEvent } from '../src/types.js'
 
 class FakeController extends EventEmitter<{ data: [ControllerEvent] }> {
   start = vi.fn()
   stop = vi.fn()
+  output = {
+    setLightbar: vi.fn(),
+    setPlayerLeds: vi.fn(),
+    setRumble: vi.fn(),
+  }
 
   send(event: ControllerEvent): void {
     this.emit('data', event)
+  }
+}
+
+class FakeStatusServer extends EventEmitter<{ aggregate: [Aggregate] }> {
+  tracker = new SessionTracker()
+  listen = vi.fn(async () => true)
+  close = vi.fn()
+
+  apply(sessionId: string, state: Parameters<SessionTracker['apply']>[1]): void {
+    this.tracker.apply(sessionId, state, { focusOnStop: true })
+    this.emit('aggregate', this.tracker.aggregate())
   }
 }
 
@@ -34,7 +52,11 @@ function setup() {
     execute,
     dispose,
   }
-  const runtime = new DesktopRuntime(structuredClone(DEFAULT_CONFIG), { controller, harness })
+  const runtime = new DesktopRuntime(structuredClone(DEFAULT_CONFIG), {
+    controller,
+    harness,
+    statusServer: null,
+  })
   runtime.start()
   return { controller, dispose, execute, runtime }
 }
@@ -89,10 +111,57 @@ describe('DesktopRuntime', () => {
     const runtime = new DesktopRuntime(structuredClone(DEFAULT_CONFIG), {
       controller,
       onPlayStation,
+      statusServer: null,
     })
     runtime.start()
     controller.send({ kind: 'system', control: 'playstation', pressed: true })
     controller.send({ kind: 'system', control: 'playstation', pressed: false })
     expect(onPlayStation).toHaveBeenCalledOnce()
+  })
+
+  it('mirrors lifecycle state and occupied sessions to DualSense LEDs', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = new FakeController()
+      const statusServer = new FakeStatusServer()
+      const runtime = new DesktopRuntime(structuredClone(DEFAULT_CONFIG), {
+        controller,
+        statusServer,
+      })
+      runtime.start()
+      controller.send({ kind: 'connected', controllerType: 'dualsense' })
+
+      statusServer.apply('task-1', 'executing')
+      expect(controller.output.setRumble).toHaveBeenLastCalledWith(0.22)
+      await vi.advanceTimersByTimeAsync(50)
+      expect(controller.output.setLightbar).toHaveBeenLastCalledWith({ r: 0, g: 0, b: 255 })
+      expect(controller.output.setPlayerLeds).toHaveBeenLastCalledWith(0b00001)
+      await vi.advanceTimersByTimeAsync(200)
+      expect(controller.output.setRumble).toHaveBeenLastCalledWith(0)
+
+      controller.output.setRumble.mockClear()
+      statusServer.apply('task-2', 'waiting')
+      expect(controller.output.setRumble).toHaveBeenLastCalledWith(0.5)
+      await vi.advanceTimersByTimeAsync(330)
+      expect(controller.output.setRumble.mock.calls.map(([intensity]) => intensity)).toEqual([
+        0, 0.5, 0, 0.5, 0,
+      ])
+      await vi.advanceTimersByTimeAsync(50)
+      expect(controller.output.setLightbar).toHaveBeenLastCalledWith({ r: 255, g: 176, b: 0 })
+      expect(controller.output.setPlayerLeds).toHaveBeenLastCalledWith(0b00011)
+
+      statusServer.apply('task-2', 'complete')
+      expect(controller.output.setRumble).toHaveBeenLastCalledWith(0.28)
+      await vi.advanceTimersByTimeAsync(750)
+      expect(controller.output.setRumble).toHaveBeenLastCalledWith(0)
+      await vi.advanceTimersByTimeAsync(50)
+      expect(controller.output.setLightbar).toHaveBeenLastCalledWith({ r: 0, g: 255, b: 0 })
+
+      runtime.stop()
+      await Promise.resolve()
+      expect(statusServer.close).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -4,6 +4,7 @@
 
 import type { Action } from './harness/types.js'
 import type { ControlId } from './layers.js'
+import { keyboardShortcutLabel } from './keyboard-shortcut.js'
 import type { ControllerType } from './types.js'
 
 const PLAYSTATION_FACE: Record<string, string> = {
@@ -125,6 +126,10 @@ export function actionLabel(action: Action): string {
       return 'accept'
     case 'reject':
       return 'reject'
+    case 'clear_input':
+      return 'clear input'
+    case 'keyboard_shortcut':
+      return `keyboard shortcut ${keyboardShortcutLabel(action.code, action.modifiers)}`
     case 'push_to_talk':
       return 'push-to-talk'
     case 'new_chat':
