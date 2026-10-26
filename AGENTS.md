@@ -1,5 +1,12 @@
 # OpenMicro — project conventions
 
+## Proposing issues
+
+When the user wants to propose an issue, discuss an idea, or prepare work for a later agent,
+read [docs/ISSUES.md](docs/ISSUES.md). Use its discussion workflow and the matching
+[issue template](.github/ISSUE_TEMPLATE/proposal.md). Issue discussion does not authorize
+implementation; distinguish a draft from approved work and record merge permission explicitly.
+
 ## Review workflow (required)
 
 `main` is protected. Every change lands through a pull request that passes

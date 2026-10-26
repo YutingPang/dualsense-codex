@@ -31,6 +31,7 @@ npm run verify     # typecheck + lint + format:check + tests — must be green
 
 - Branch from `main`, keep PRs small and focused, and make `npm run verify` pass before pushing — CI runs the same gate on ubuntu and macos.
 - The review flow this repo actually follows — frozen SHA, independent reviewer, merge rules: [docs/REVIEW.md](docs/REVIEW.md).
+- To propose work rather than a patch — a bug, an idea, a design question — follow [docs/ISSUES.md](docs/ISSUES.md) and use the [work proposal template](.github/ISSUE_TEMPLATE/proposal.md).
 - New controller drivers are pure parse functions (`src/controller/*-driver.ts`) + a fixture; study `xbox-driver.ts` and its tests for the pattern.
 - Hardware-behavior changes (lightbar, gestures, HID) should say in the PR what was verified on a physical pad vs. only in tests.
 - No new dependencies without discussion — the runtime dep list is four packages and we like it that way.
