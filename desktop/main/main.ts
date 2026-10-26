@@ -228,10 +228,10 @@ function showMainWindow(): void {
 
   const dirname = path.dirname(fileURLToPath(import.meta.url))
   mainWindow = new BrowserWindow({
-    width: 1040,
-    height: 720,
-    minWidth: 760,
-    minHeight: 560,
+    width: 1180,
+    height: 900,
+    minWidth: 1000,
+    minHeight: 720,
     title: 'DualSense for Codex',
     backgroundColor: '#0a0d12',
     webPreferences: {
