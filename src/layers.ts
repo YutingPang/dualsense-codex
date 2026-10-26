@@ -142,6 +142,11 @@ const configSchema = z
     })
   })
 
+/** Gesture-only controls: stick flicks emit no press/release edge. */
+export function isAxisControl(id: ControlId): boolean {
+  return id.startsWith('lstick_') || id.startsWith('rstick_')
+}
+
 export function validateConfig(input: unknown): OpenMicroConfig {
   const result = configSchema.safeParse(input)
   if (!result.success) {
