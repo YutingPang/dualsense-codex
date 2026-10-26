@@ -168,6 +168,49 @@ Changes land through pull requests with an independent review pinned to a commit
 [docs/REVIEW.md](docs/REVIEW.md) for the workflow, the reviewer prompt, and the severity rubric.
 The rules in [AGENTS.md](AGENTS.md) apply to humans and agents alike.
 
+### Installing a build
+
+The **installed app** loads its window from the packaged `app.asar`, not from your checkout. Editing
+the renderer changes nothing until you rebuild and replace that copy — the classic symptom is
+launching the app and seeing last week's UI while `main` looks correct.
+
+From the repository root, with dependencies installed:
+
+```sh
+npm run desktop:package
+```
+
+Then quit the app — **Quit DualSense for Codex** in the menu-bar menu, not just closing the window —
+and wait for the process to exit. Replace the bundle you actually launch (this example assumes the
+copy in `~/Applications`; use the same commands against `/Applications` if yours lives there):
+
+```sh
+mkdir -p ~/Applications
+BACKUP="$HOME/Applications/DualSense for Codex.app.bak-$(date +%Y%m%d-%H%M%S)"
+mv ~/Applications/"DualSense for Codex.app" "$BACKUP" &&
+  cp -R "out/DualSense for Codex-darwin-arm64/DualSense for Codex.app" ~/Applications/ &&
+  open -a ~/Applications/"DualSense for Codex.app"
+```
+
+The `&&` chain matters: if the move fails, the copy is skipped instead of landing beside the old
+bundle. On a first install there is nothing to back up — skip the `mv` and copy directly.
+
+For a faster loop, `npm run desktop:start` serves the renderer from Vite and reloads on save, so you
+never touch `~/Applications` at all.
+
+Two things that bite:
+
+- **Quitting is not obvious.** Closing the settings window leaves the app running in the menu bar.
+  Use **Quit DualSense for Codex**, then confirm the old process is gone before replacing the bundle
+  — a surviving instance keeps showing the old window, and in one case `kill` alone did not stop it.
+- **Builds can stall in an iCloud-synced checkout.** When `node_modules` files have been evicted
+  (`dataless`), the forge build blocks reading them. Building from a clone outside `~/Documents`
+  avoids it; [docs/REVIEW.md](docs/REVIEW.md#environment-notes) covers the symptoms.
+
+Backups accumulate at roughly 288 MB each, so prune the `.bak-*` directories once a build is
+confirmed good. The login item registered by the app points at the installed path, so a rebuilt
+bundle there is also what starts at login.
+
 ## Lineage and license
 
 MIT licensed. Forked from [stephenleo/OpenMicro](https://github.com/stephenleo/OpenMicro): the
