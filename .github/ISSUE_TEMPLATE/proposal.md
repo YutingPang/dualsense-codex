@@ -42,20 +42,17 @@ that check cannot be performed, the work stays incomplete rather than passing. -
 <!-- Link prerequisites and identify questions that block implementation or verification.
 Use "None" if there are none. Do not hide unresolved decisions in assumptions. -->
 
-## Execution and merge permission
+## Approval status
 
-<!-- File this as Draft / Hold for maintainer. Both fields below are the maintainer's to change,
-on the issue, after it is filed — do not fill in a readiness or merge value as the proposer, and
-do not delete the conditions in the two lines: they are what a later reader sees, because GitHub
-does not render these comments. -->
+<!-- File this as Draft and leave these two lines for the maintainer. Do not set Ready yourself
+and do not delete the explanation below it: a reader of the issue does not see this comment. -->
 
-- Readiness: **Draft**. Ready only once the maintainer has approved the scope for execution —
-  the criteria are concrete, dependencies are identified, and no open question blocks
-  implementation. Only the maintainer sets **Ready**.
-- Merge permission: **Hold for maintainer** — the PR waits for the maintainer's merge
-  instruction. **Automatic after gates pass** is granted only by a maintainer-authored issue
-  comment, linked from Authorization; even then the merge still requires the automated gate, an
-  independent review pinned to the commit being merged, no open P1, every required manual check,
-  every acceptance criterion with the evidence it names, and the accepted P2/P3 findings filed.
-  The review happens before the merge, never instead of it, and no release is implied.
-- Authorization: none — link the maintainer comment that grants either of the above.
+- Status: **Draft**. Ready means the maintainer has approved the scope for execution: the
+  criteria are concrete, dependencies are identified, and no open question blocks
+  implementation.
+- Approved by: none.
+
+Approval here covers starting the work, not landing it. It is not merge permission: every pull
+request still needs the maintainer's merge instruction and the full `docs/REVIEW.md` workflow,
+whatever this issue says. The maintainer's comment, not this line, is the record — if the status
+line is stale, read the comments.
