@@ -382,4 +382,49 @@ describe('codex-app harness', () => {
     codexAppHarness.execute?.('\x03')
     expect(execFile).not.toHaveBeenCalled()
   })
+
+  it('survives a pointer helper that fails to spawn', () => {
+    const stdinHandlers = new Map<string, (arg?: unknown) => void>()
+    const stdin = {
+      destroyed: false,
+      writable: true,
+      write: vi.fn(),
+      on: vi.fn((event: string, handler: (arg?: unknown) => void) => {
+        stdinHandlers.set(event, handler)
+      }),
+    }
+    const childHandlers = new Map<string, (arg?: unknown) => void>()
+    spawn.mockReturnValue({
+      stdin,
+      stderr: { on: vi.fn() },
+      killed: false,
+      kill: vi.fn(),
+      on: vi.fn((event: string, handler: (arg?: unknown) => void) => {
+        childHandlers.set(event, handler)
+      }),
+    })
+    codexAppHarness.movePointer?.(1, 2)
+    expect(childHandlers.has('error')).toBe(true)
+    expect(stdinHandlers.has('error')).toBe(true)
+    // An unhandled 'error' event throws; the handler must contain it instead.
+    expect(() => childHandlers.get('error')?.(new Error('spawn ENOENT'))).not.toThrow()
+    codexAppHarness.movePointer?.(3, 4)
+    expect(stdin.write).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the clipboard when the paste subprocess is killed', async () => {
+    execFileSync.mockImplementation((command: unknown) =>
+      command === '/usr/bin/pbpaste' ? 'earlier clipboard' : undefined,
+    )
+    execFile.mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') cb(new Error('ETIMEDOUT'), '', '')
+    })
+    codexAppHarness.execute?.('paste:' + Buffer.from('draft prompt').toString('base64'))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execFileSync).toHaveBeenCalledWith('/usr/bin/pbcopy', {
+      input: 'earlier clipboard',
+      timeout: 1000,
+    })
+  })
 })

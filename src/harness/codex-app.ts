@@ -101,15 +101,56 @@ function sendPointerCommand(command: 'move' | 'scroll' | 'click', dx: number, dy
       logger.warn('could not compile touchpad pointer helper', err)
       return
     }
-    pointerHelper = spawn(POINTER_HELPER_PATH)
-    pointerHelper.stderr.on('data', (data: Buffer) =>
+    const helper = spawn(POINTER_HELPER_PATH)
+    pointerHelper = helper
+    // spawn() reports ENOENT/EACCES asynchronously as an 'error' event. With no
+    // listener Node rethrows it, and this runs on the controller event path —
+    // one failed helper would take the whole host process down.
+    const disable = (err: unknown): void => {
+      pointerUnavailable = true
+      if (pointerHelper === helper) pointerHelper = null
+      logger.warn('touchpad pointer helper failed', err)
+    }
+    helper.stderr.on('data', (data: Buffer) =>
       logger.warn('touchpad pointer helper failed', data.toString().trim()),
     )
-    pointerHelper.on('exit', () => {
-      pointerHelper = null
+    helper.on('error', disable)
+    // The helper may die between two writes; the broken pipe surfaces here.
+    helper.stdin.on('error', disable)
+    helper.on('exit', () => {
+      if (pointerHelper === helper) pointerHelper = null
     })
   }
-  pointerHelper.stdin.write(`${command} ${dx.toFixed(3)} ${dy.toFixed(3)}\n`)
+  const helper = pointerHelper
+  if (!helper || helper.stdin.destroyed || !helper.stdin.writable) return
+  try {
+    helper.stdin.write(`${command} ${dx.toFixed(3)} ${dy.toFixed(3)}\n`)
+  } catch (err) {
+    pointerUnavailable = true
+    pointerHelper = null
+    logger.warn('touchpad pointer helper write failed', err)
+  }
+}
+
+/** Best-effort clipboard snapshot; null when it is unavailable or not text. */
+function readClipboard(): string | null {
+  try {
+    const value = execFileSync('/usr/bin/pbpaste', { encoding: 'utf8', timeout: 1000 })
+    return typeof value === 'string' ? value : null
+  } catch (err) {
+    logger.warn('could not read clipboard before pasting prompt', err)
+    return null
+  }
+}
+
+/** Restore a snapshot from readClipboard(); a no-op when there was none. */
+function restoreClipboard(value: string | null): void {
+  if (value === null) return
+  try {
+    execFileSync('/usr/bin/pbcopy', { input: value, timeout: 1000 })
+  } catch (err) {
+    logger.warn('could not restore clipboard after pasting prompt', err)
+  }
 }
 
 // Paste prompt text into the focused composer instead of opening a
@@ -122,11 +163,18 @@ const PASTE_PROMPT_SCRIPT = `on run argv
   try
     set oldClipboard to the clipboard
   end try
-  set the clipboard to promptText
-  tell application "Codex" to activate
-  delay 0.15
-  tell application "System Events" to keystroke "v" using command down
-  delay 0.1
+  try
+    set the clipboard to promptText
+    tell application "Codex" to activate
+    delay 0.15
+    tell application "System Events" to keystroke "v" using command down
+    delay 0.1
+  on error errMsg number errNum
+    -- Restore before propagating: a denied Automation prompt must not leave
+    -- the user's clipboard holding the prompt text.
+    if oldClipboard is not missing value then set the clipboard to oldClipboard
+    error errMsg number errNum
+  end try
   if oldClipboard is not missing value then set the clipboard to oldClipboard
 end run`
 
@@ -420,7 +468,13 @@ export const codexAppHarness: Harness = {
         report(err as Error)
         return
       }
-      enqueueOsascript(['-e', PASTE_PROMPT_SCRIPT, '--', text], report)
+      // execFile's timeout kills osascript mid-run, so the script's own restore
+      // never executes; keep a parent-side snapshot for that path.
+      const savedClipboard = readClipboard()
+      enqueueOsascript(['-e', PASTE_PROMPT_SCRIPT, '--', text], (err, stderr) => {
+        report(err, stderr)
+        if (err) restoreClipboard(savedClipboard)
+      })
     } else if (tag === 'osascript') {
       // System Events keystrokes require the terminal to have Accessibility /
       // Automation permission. A newline in the payload runs as sequential
