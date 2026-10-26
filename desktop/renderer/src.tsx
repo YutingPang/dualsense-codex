@@ -41,6 +41,10 @@ const CONTROLS: { id: ControlId; label: string }[] = [
 
 type EditableActionType = Action['type'] | 'none'
 
+/** Stick directions are gesture controls: they emit no press/release edge. */
+const isGestureControl = (id: ControlId): boolean =>
+  id.startsWith('lstick_') || id.startsWith('rstick_')
+
 function App() {
   const [snapshot, setSnapshot] = useState<DesktopSnapshot | null>(null)
   const [envelope, setEnvelope] = useState<ConfigEnvelope | null>(null)
@@ -263,7 +267,9 @@ function App() {
                 <option value="clear_input">Clear all input</option>
                 <option value="keyboard_shortcut">Keyboard key / shortcut</option>
                 <option value="new_chat">New task</option>
-                <option value="push_to_talk">Hold to talk</option>
+                <option value="push_to_talk" disabled={isGestureControl(control)}>
+                  {isGestureControl(control) ? 'Hold to talk (needs a button)' : 'Hold to talk'}
+                </option>
                 <option value="prompt">Insert prompt text</option>
                 <option value="workflow">Workflow preset</option>
                 <option value="thinking_depth">Reasoning effort</option>

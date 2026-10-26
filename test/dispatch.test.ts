@@ -107,4 +107,15 @@ describe('dispatchAction', () => {
     dispatchAction({ type: 'push_to_talk' } as Action, deps)
     expect(writes).toEqual([])
   })
+
+  it('drops hold-to-talk with no press edge instead of holding the chord', () => {
+    // claudeHarness does hold a key for push-to-talk, so a missing guard would
+    // emit the key-down here and never a matching key-up.
+    const { deps, writes } = makeDeps()
+    dispatchAction({ type: 'push_to_talk' } as Action, deps)
+    expect(writes).toEqual([])
+
+    dispatchAction({ type: 'push_to_talk', pressed: true } as Action, deps)
+    expect(writes).toEqual([' '])
+  })
 })
