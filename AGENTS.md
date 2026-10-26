@@ -16,7 +16,8 @@ it has the commands, the reviewer prompt, and the severity rubric.
 
 The non-negotiables:
 
-- **Never push to `main`.** Branch, open a PR, merge with a merge commit.
+- **Never push to `main`.** Branch, open a PR, merge with a merge commit — after the review, and
+  only when the merge is authorized. A green CI run is not authorization.
 - **Review a frozen tree, not a moving branch.** Tag `review/<slug>-rN` before every review round.
 - **The reviewer must not be the context that wrote the code.** A fresh session or subagent, git
   reads only, no access to the authoring conversation. Never use a forked/continued context.
