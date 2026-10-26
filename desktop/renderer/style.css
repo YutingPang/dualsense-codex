@@ -195,11 +195,20 @@ button {
 
 /* ---------- stage ---------- */
 
-.stage {
+.stage-wrap {
   position: relative;
+  width: 100%;
+  overflow: hidden;
+  margin: 0 auto 6px;
+}
+
+.stage {
+  position: absolute;
+  left: 50%;
+  top: 0;
   width: 900px;
   height: 540px;
-  margin: 0 auto 6px;
+  transform-origin: top center;
 }
 
 .stage .pad {
@@ -285,6 +294,9 @@ button {
 
 .chip .a {
   color: var(--muted);
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chip.unbound .a {
@@ -466,6 +478,25 @@ tbody tr.group:hover td {
   text-align: right;
   color: var(--faint);
   font-size: 12px;
+}
+
+.row-edit {
+  border: 0;
+  background: transparent;
+  color: var(--faint);
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.row-edit:hover {
+  color: #c6d0de;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.row-edit:focus-visible {
+  outline: 2px solid rgba(91, 140, 255, 0.6);
+  outline-offset: 1px;
 }
 
 .pill {

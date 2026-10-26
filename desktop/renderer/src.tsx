@@ -80,6 +80,18 @@ const GLYPHS: Partial<Record<ControlId, string>> = {
   east: '○',
   west: '□',
   north: '△',
+  dpad_up: '↑',
+  dpad_down: '↓',
+  dpad_left: '←',
+  dpad_right: '→',
+  l1: 'L1',
+  r1: 'R1',
+  l2: 'L2',
+  r2: 'R2',
+  l3: 'L3',
+  r3: 'R3',
+  menu: '⋯',
+  view: '▣',
   touchpad: 'TP',
 }
 
@@ -234,9 +246,7 @@ function App() {
         >
           <td>
             <div className="ctl">
-              <span className={`glyph ${id}`}>
-                {GLYPHS[id] ?? (id.startsWith('lstick') || id.startsWith('rstick') ? '↗' : '')}
-              </span>
+              <span className={`glyph ${id}`}>{GLYPHS[id] ?? '↗'}</span>
               {LABELS[id] ?? id}
             </div>
           </td>
@@ -245,7 +255,20 @@ function App() {
             {id === 'touchpad' && <span className="pill">fixed in desktop</span>}
           </td>
           <td className="keys">{detail(id)}</td>
-          <td className="edit">{open ? 'Editing' : 'Edit ›'}</td>
+          <td className="edit">
+            <button
+              type="button"
+              className="row-edit"
+              aria-expanded={open}
+              aria-label={`Edit ${LABELS[id] ?? id}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                selectControl(id)
+              }}
+            >
+              {open ? 'Editing' : 'Edit ›'}
+            </button>
+          </td>
         </tr>
         {open && (
           <tr className="editor-row">

@@ -4,6 +4,7 @@
 // the same `Layer` the table edits — so rebinding a control moves both the label
 // here and the row below in the same render.
 
+import { useEffect, useRef, useState } from 'react'
 import type { ControlId, Layer } from '../../src/layers.js'
 import { buildCallouts } from './callouts.js'
 import { DualSense } from './pad.js'
@@ -48,83 +49,108 @@ type Props = {
   onSelect: (control: ControlId) => void
 }
 
+const STAGE_WIDTH = 900
+const STAGE_HEIGHT = 540
+
 export function PadStage({ layer, workflows, selected, connected, onSelect }: Props) {
   const callouts = buildCallouts(layer, workflows)
+  const wrap = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+
+  // The stage is a fixed 900x540 drawing. Below that width it scales down as a
+  // whole rather than clipping the outer callouts.
+  useEffect(() => {
+    const element = wrap.current
+    if (!element) return
+    const measure = (): void => {
+      const width = element.clientWidth
+      if (width > 0) setScale(Math.min(1, Math.max(0.55, width / STAGE_WIDTH)))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   const highlightKey = HIGHLIGHT_FOR_CONTROL[selected]
   const highlight = highlightKey ? { [highlightKey]: '#7d92ff' } : {}
 
   return (
-    <div className="stage">
-      <svg className="leads" viewBox="0 0 900 540" aria-hidden="true">
-        {callouts.map((callout) => {
-          const from =
-            callout.side === 'left'
-              ? { x: 125, y: callout.y }
-              : callout.side === 'right'
-                ? { x: 775, y: callout.y }
-                : callout.side === 'top'
-                  ? { x: 450, y: callout.y + 16 }
-                  : { x: 450, y: callout.y - 16 }
-          return (
-            <g key={callout.id} className={callout.bound ? '' : 'muted'}>
-              <line x1={from.x} y1={from.y} x2={callout.anchor.x} y2={callout.anchor.y} />
-              <circle cx={callout.anchor.x} cy={callout.anchor.y} r={2.2} />
+    <div className="stage-wrap" ref={wrap} style={{ height: `${STAGE_HEIGHT * scale}px` }}>
+      <div className="stage" style={{ transform: `translateX(-50%) scale(${scale})` }}>
+        <svg className="leads" viewBox="0 0 900 540" aria-hidden="true">
+          {callouts.map((callout) => {
+            const from =
+              callout.side === 'left'
+                ? { x: 125, y: callout.y }
+                : callout.side === 'right'
+                  ? { x: 775, y: callout.y }
+                  : callout.side === 'top'
+                    ? { x: 450, y: callout.y + 16 }
+                    : { x: 450, y: callout.y - 16 }
+            return (
+              <g key={callout.id} className={callout.bound ? '' : 'muted'}>
+                <line x1={from.x} y1={from.y} x2={callout.anchor.x} y2={callout.anchor.y} />
+                <circle cx={callout.anchor.x} cy={callout.anchor.y} r={2.2} />
+              </g>
+            )
+          })}
+        </svg>
+
+        <div className="pad">
+          <DualSense
+            lightbar={connected ? '#5b8cff' : '#3a3d48'}
+            glow={connected ? 0.9 : 0.25}
+            playerLeds={connected ? 0b00011 : 0}
+            highlight={highlight}
+            width={600}
+          >
+            <g>
+              <circle cx={240} cy={203} r={9} fill="#22242c" stroke="#3a3d48" strokeWidth={1.4} />
+              <text
+                x={240}
+                y={206.5}
+                textAnchor="middle"
+                fontSize={7}
+                fontWeight={700}
+                fill="#9aa0ae"
+                fontFamily="ui-sans-serif, sans-serif"
+              >
+                PS
+              </text>
             </g>
+          </DualSense>
+        </div>
+
+        {callouts.map((callout) => {
+          const control = CHIP_TO_CONTROL[callout.id]
+          const classes = [
+            'chip',
+            callout.side,
+            callout.bound ? '' : 'unbound',
+            callout.fixed ? 'fixed' : '',
+            control && control === selected ? 'selected' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')
+          return (
+            <button
+              key={callout.id}
+              type="button"
+              className={classes}
+              style={{ top: `${callout.y}px` }}
+              disabled={!control}
+              onClick={() => control && onSelect(control)}
+            >
+              {callout.tone && <span className="swatch" style={{ background: callout.tone }} />}
+              <span className="b">{callout.button}</span>
+              <span className="a" title={callout.action}>
+                {callout.action}
+              </span>
+            </button>
           )
         })}
-      </svg>
-
-      <div className="pad">
-        <DualSense
-          lightbar={connected ? '#5b8cff' : '#3a3d48'}
-          glow={connected ? 0.9 : 0.25}
-          playerLeds={connected ? 0b00011 : 0}
-          highlight={highlight}
-          width={600}
-        >
-          <g>
-            <circle cx={240} cy={203} r={9} fill="#22242c" stroke="#3a3d48" strokeWidth={1.4} />
-            <text
-              x={240}
-              y={206.5}
-              textAnchor="middle"
-              fontSize={7}
-              fontWeight={700}
-              fill="#9aa0ae"
-              fontFamily="ui-sans-serif, sans-serif"
-            >
-              PS
-            </text>
-          </g>
-        </DualSense>
       </div>
-
-      {callouts.map((callout) => {
-        const control = CHIP_TO_CONTROL[callout.id]
-        const classes = [
-          'chip',
-          callout.side,
-          callout.bound ? '' : 'unbound',
-          callout.fixed ? 'fixed' : '',
-          control && control === selected ? 'selected' : '',
-        ]
-          .filter(Boolean)
-          .join(' ')
-        return (
-          <button
-            key={callout.id}
-            type="button"
-            className={classes}
-            style={{ top: `${callout.y}px` }}
-            disabled={!control}
-            onClick={() => control && onSelect(control)}
-          >
-            {callout.tone && <span className="swatch" style={{ background: callout.tone }} />}
-            <span className="b">{callout.button}</span>
-            <span className="a">{callout.action}</span>
-          </button>
-        )
-      })}
     </div>
   )
 }

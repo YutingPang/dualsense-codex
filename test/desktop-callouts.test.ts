@@ -55,7 +55,12 @@ describe('pad callouts', () => {
       dpad_up: { type: 'accept' },
       dpad_down: { type: 'keys', bytes: '\x1b[B' },
     })
-    expect(callout(buildCallouts(mixed, workflows), 'dpad')?.action).toBe('Mixed bindings')
+    expect(callout(buildCallouts(mixed, workflows), 'dpad')?.action).toBe('Mixed bindings · 2/4')
+
+    // One direction bound is a partial cluster, not a fully bound one.
+    expect(
+      callout(buildCallouts(layer({ dpad_up: { type: 'accept' } }), workflows), 'dpad')?.action,
+    ).toBe('Submit · 1/4')
   })
 
   it('keeps wrapper-owned controls bound whatever the config says', () => {

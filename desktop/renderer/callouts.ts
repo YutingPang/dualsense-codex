@@ -95,8 +95,10 @@ function dpadSummary(layer: Layer | undefined, workflows: Record<string, string>
   const labels = ids.map((id) => actionLabel(layer?.bindings[id], workflows))
   const bound = labels.filter((label) => label !== 'Unassigned')
   if (bound.length === 0) return 'Unassigned'
-  const [first] = bound
-  return bound.every((label) => label === first) ? (first as string) : 'Mixed bindings'
+  const distinct = new Set(bound)
+  const shared = distinct.size === 1 ? (bound[0] as string) : 'Mixed bindings'
+  // A partial cluster is a different state from a fully bound one; say so.
+  return bound.length === ids.length ? shared : `${shared} · ${bound.length}/4`
 }
 
 /**
