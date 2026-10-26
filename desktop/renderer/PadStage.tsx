@@ -49,7 +49,7 @@ type Props = {
   onSelect: (control: ControlId) => void
 }
 
-const STAGE_WIDTH = 900
+const STAGE_WIDTH = 1040
 const STAGE_HEIGHT = 540
 
 export function PadStage({ layer, workflows, selected, connected, onSelect }: Props) {
@@ -78,7 +78,7 @@ export function PadStage({ layer, workflows, selected, connected, onSelect }: Pr
   return (
     <div className="stage-wrap" ref={wrap} style={{ height: `${STAGE_HEIGHT * scale}px` }}>
       <div className="stage" style={{ transform: `translateX(-50%) scale(${scale})` }}>
-        <svg className="leads" viewBox="0 0 900 540" aria-hidden="true">
+        <svg className="leads" viewBox="0 0 1040 540" aria-hidden="true">
           {callouts.map((callout) => {
             const from =
               callout.side === 'left'

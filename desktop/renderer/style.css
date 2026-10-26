@@ -206,14 +206,14 @@ button {
   position: absolute;
   left: 50%;
   top: 0;
-  width: 900px;
+  width: 1040px;
   height: 540px;
   transform-origin: top center;
 }
 
 .stage .pad {
   position: absolute;
-  left: 150px;
+  left: 220px;
   top: 70px;
   width: 600px;
   filter: drop-shadow(0 26px 44px rgba(0, 0, 0, 0.5));
@@ -222,7 +222,7 @@ button {
 .stage .leads {
   position: absolute;
   inset: 0;
-  width: 900px;
+  width: 1040px;
   height: 540px;
   pointer-events: none;
 }
@@ -270,20 +270,20 @@ button {
 }
 
 .chip.left {
-  right: 775px;
+  right: 845px;
   transform: translateY(-50%);
   flex-direction: row-reverse;
   text-align: right;
 }
 
 .chip.right {
-  left: 775px;
+  left: 845px;
   transform: translateY(-50%);
 }
 
 .chip.top,
 .chip.bottom {
-  left: 450px;
+  left: 520px;
   transform: translate(-50%, -50%);
 }
 
@@ -294,7 +294,7 @@ button {
 
 .chip .a {
   color: var(--muted);
-  max-width: 190px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }

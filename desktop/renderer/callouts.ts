@@ -28,7 +28,7 @@ export interface Callout {
 }
 
 /** The pad is drawn at 600px wide from a 480x320 viewBox, offset in the stage. */
-const PAD = { left: 150, top: 70, scale: 1.25 }
+const PAD = { left: 220, top: 70, scale: 1.25 }
 
 const at = (x: number, y: number): { x: number; y: number } => ({
   x: PAD.left + x * PAD.scale,

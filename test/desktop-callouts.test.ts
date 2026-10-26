@@ -75,7 +75,7 @@ describe('pad callouts', () => {
   it('keeps every callout anchor inside the stage', () => {
     for (const entry of buildCallouts(DEFAULT_CONFIG.layers[0], workflows)) {
       expect(entry.anchor.x).toBeGreaterThan(0)
-      expect(entry.anchor.x).toBeLessThan(900)
+      expect(entry.anchor.x).toBeLessThan(1040)
       expect(entry.anchor.y).toBeGreaterThan(0)
       expect(entry.anchor.y).toBeLessThan(540)
     }
