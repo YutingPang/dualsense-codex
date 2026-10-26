@@ -1,7 +1,7 @@
 # Review workflow
 
-How every change reaches `main` in this repo. Written to be followed by a human **or** an
-agent starting from a fresh session, including models other than the one that wrote the code.
+How every change reaches `main` in this repo. Written to be followed by a human **or** an agent
+starting from a fresh session, including models other than the one that wrote the code.
 
 `main` is protected. A change lands only through a pull request that passes both required
 checks and carries a review pinned to a commit SHA.
@@ -12,10 +12,10 @@ A pull request is not "a web page where code waits". It is three guarantees, and
 below exists to preserve one of them:
 
 1. **A frozen head.** The reviewer judges a tree that cannot move underneath them.
-2. **A gate that runs somewhere other than the author's checkout.** CI on a clean runner,
-   plus a local run in a throwaway worktree.
-3. **A sign-off bound to a SHA.** The verdict names the commit it applies to, so a later
-   commit cannot inherit an earlier approval.
+2. **A gate that runs somewhere other than the author's checkout.** CI on a clean runner, plus
+   a local run in a separate checkout.
+3. **A sign-off bound to a SHA.** The verdict names the commit it applies to, so a later commit
+   cannot inherit an earlier approval.
 
 ## Roles
 
@@ -24,29 +24,46 @@ below exists to preserve one of them:
 - **Gate** — GitHub Actions: `verify (ubuntu-latest)` and `verify (macos-latest)`.
 
 The review is advisory by design: branch protection requires **0 approvals**, because a solo
-maintainer cannot approve their own PR and requiring one would deadlock the repo. The gate and
-the review record are the control, not the approval count. If a second maintainer joins, raise
-`required_approving_review_count` to 1.
+maintainer cannot approve their own PR and requiring one would deadlock the repo. Protection
+enforces the checks and conversation resolution; the maintainer enforces the review record.
+If a second maintainer joins, raise `required_approving_review_count` to 1.
+
+## 0. Setup
+
+This checkout has two remotes (`origin` = the fork, `upstream` = OpenMicro), so **never let a
+`gh` command infer the repository** — it has picked `upstream` before, where none of these
+branches exist.
+
+```sh
+REPO=YutingPang/dualsense-codex
+cd ~/Documents/DualSense          # the author checkout
+git switch main && git pull --ff-only
+BASE=$(git rev-parse HEAD)        # record it; the delta review needs it later
+```
+
+Every `gh` command below passes `--repo "$REPO"` explicitly.
 
 ## 1. Branch and commits
 
 ```sh
-git switch main && git pull --ff-only
 git switch -c feat/<slug>
 ```
 
-One commit per concern. Fold fixups before review (`git rebase -i main`) — a reviewer cannot
+One commit per concern. Fold fixups before review (`git rebase -i "$BASE"`) — a reviewer cannot
 hold a 12k-line diff, but it can hold 400 lines.
 
-## 2. Freeze the head
+## 2. Publish the branch and freeze the head
+
+`gh pr create --head` does **not** push the branch for you, so publish it first.
 
 ```sh
+git push -u origin feat/<slug>
 git tag review/<slug>-r1 HEAD
 git push origin review/<slug>-r1
 ```
 
 The tag is the PR head. The branch may keep moving; the reviewed tree cannot. Re-freeze after
-every round of fixes: `review/<slug>-r2`, `-r3`.
+every round of fixes: `-r2`, `-r3`.
 
 ## 3. Run the gate outside your checkout
 
@@ -56,25 +73,36 @@ cd ~/dev/reviews/<slug>-r1
 npm ci && npm run verify
 ```
 
-Use a path **outside** `~/Documents`. This checkout lives under iCloud, which evicts files
-(`dataless`) and makes `tsc` stall and `git push` hang; a worktree in `~/dev` or `/tmp` does not
-have that problem.
-
-The worktree also proves the tagged tree builds on its own, without uncommitted WIP lending a
-hand. If `npm` cannot write `~/.npm`:
+Use a path **outside** `~/Documents`. A linked worktree still shares the original object
+database, so it fixes the `tsc`/`node_modules` problem (the working files are new) but not
+iCloud eviction of `.git`. If `git` itself keeps stalling, take a real clone instead:
 
 ```sh
-npm ci --cache /tmp/npm-cache && npm run verify
+git clone --no-hardlinks ~/Documents/DualSense ~/dev/reviews/<slug>-r1
+cd ~/dev/reviews/<slug>-r1 && git switch review/<slug>-r1
+npm ci && npm run verify
 ```
+
+`--no-hardlinks` matters: hardlinked object files stay tied to the iCloud originals.
+
+If `npm` cannot write `~/.npm`: `npm ci --cache /tmp/npm-cache`.
+
+**You are now in the review checkout, not the author checkout.** Step 7 returns you.
 
 ## 4. Open the pull request
 
+From the **author** checkout:
+
 ```sh
-gh pr create --base main --head feat/<slug> --title "<type>: <summary>" --body-file /tmp/pr.md
+cd ~/Documents/DualSense
+git switch feat/<slug>
+# fill in .github/pull_request_template.md and save it as /tmp/pr.md
+gh pr create --repo "$REPO" --base main --head feat/<slug> \
+  --title "<type>: <summary>" --body-file /tmp/pr.md
 ```
 
-Fill `.github/pull_request_template.md` honestly. The **Verified** section is the one reviewers
-trust least and need most: say what you ran, what you ran it on, and what you did not verify.
+Fill the template honestly. The **Verified** section is the one reviewers trust least and need
+most: say what you ran, what you ran it on, and what you did not verify.
 
 ## 5. Independent review
 
@@ -90,17 +118,19 @@ Rules, in order of how often they are broken:
   to use `git diff <base>...<head>` and `git show <head>:<path>`.
 - **Read-only.** A reviewer that edits what it finds is an author. Refuse the temptation.
 - **Require the "could not verify" section.** A review that claims full coverage is the failure
-  mode. The most useful line in this repo's history was "tsc never completed".
+  mode.
+- **Confirm CI before you assert it.** The prompt template says the gate is green; check
+  `gh pr checks <n> --repo "$REPO"` first, and paste the pinned SHAs, not `HEAD`.
 
 Post the result as a review comment, so the record lives on the PR:
 
 ```sh
-gh pr review <n> --comment --body-file /tmp/review.md
+gh pr review <n> --repo "$REPO" --comment --body-file /tmp/review.md
 ```
 
 Prefix it with the reviewer, model, and pinned SHA — for example
-**Delta review — Codex, `bd4eb43..ca6d237`** — so nobody mistakes it for an approval of a
-later commit.
+**Delta review — Codex, `bd4eb43..ca6d237`** — so nobody mistakes it for an approval of a later
+commit.
 
 Annotate what you independently reproduced. A finding is a lead until someone checks it; say
 which ones you checked.
@@ -141,33 +171,47 @@ concrete failure mode, the smallest fix direction. Cite exact identifiers. No pr
 ## Nits
 <Max 5, or "none".>
 
-P1 = stuck modifier, crash, data loss, security. Never invent a line number — confirm each
-citation with git show or grep before writing it.
+P1 = stuck modifier, crash, data loss, or a security issue with a reachable exploit path.
+Classify other security-hardening gaps by demonstrated impact, not by category.
+Never invent a line number — confirm each citation with git show or grep before writing it.
 ```
 
 ## 6. Triage
 
 - **P1 blocks the merge.** Fix it on the same branch.
 - **P2/P3 become issues**, not review rounds — unless the fix is trivial and in the same file.
-- Never argue a finding down in the PR thread. Reproduce it or file it.
+- Reproduce a finding before acting on it. If it is a false positive, close it in the thread
+  with the evidence that disproves it — do not silently ignore it, and do not argue it down
+  without evidence either way.
 
-## 7. Fix, and re-freeze
+## 7. Fix, verify, re-freeze
+
+Back in the author checkout — **not** the review worktree from step 3:
 
 ```sh
-# fix, then:
+cd ~/Documents/DualSense
+git switch feat/<slug>
+# fix
+npm run verify
+git commit -am "fix: <what the review found>"
+git push
 git tag review/<slug>-r2 HEAD
+git push origin review/<slug>-r2
 ```
 
-Every fix for a real defect needs a test that **fails against the old code**. Verify that by
-temporarily reverting the fix, running the test, and putting the fix back. A test that passes
-either way is decoration.
+Every fix for a real defect needs a test that **fails against the old code**, where such a test
+is meaningful. Verify it by temporarily reverting the fix, watching the test fail, and putting
+it back. For hardware and UI behaviour a test cannot reach, record what you observed manually
+instead — "not verified" is an acceptable answer, a fabricated test is not.
 
 ## 8. Delta review
 
 Review only what changed since the last verdict.
 
 - Commits were appended: `git diff review/<slug>-r1..review/<slug>-r2`
-- History was rewritten: `git range-diff main...review/<slug>-r1 main...review/<slug>-r2`
+- History was rewritten: `git range-diff "$BASE"..review/<slug>-r1 "$BASE"..review/<slug>-r2`
+
+Using the recorded `$BASE` commit rather than `main` keeps the ranges stable after `main` moves.
 
 Ask for three things and nothing else:
 
@@ -175,44 +219,54 @@ Ask for three things and nothing else:
 2. New issues introduced by the fix itself.
 3. Whether the new tests actually distinguish fixed from broken.
 
-**Two rounds maximum.** After that, either ship with the remaining findings filed as issues, or
-stop and reconsider the design. An unbounded review loop is a way of not deciding.
+**At most two rounds per attempt.** Unresolved P1s block the merge: stop and revise the scope or
+the design rather than looping. Accepted P2/P3 findings are filed as issues before merging.
 
 ## 9. Merge
 
+Merge the exact commit that was reviewed:
+
 ```sh
-gh pr merge <n> --merge
+gh pr view <n> --repo "$REPO" --json headRefOid,mergeable,statusCheckRollup
+gh pr merge <n> --repo "$REPO" --merge \
+  --match-head-commit "$(git rev-parse review/<slug>-r2)"
 ```
+
+`--match-head-commit` aborts if anything landed on the branch after the verdict — the guard
+that makes "the reviewed SHA is what merges" true rather than aspirational.
 
 A merge commit, not a squash: it keeps the individual fix commits and the review trail
 reachable from `main`. The head branch is auto-deleted. Then:
 
-- File any remaining P2/P3 findings as issues (`P2` + `review-finding`).
-- Delete the review tags locally if they are noise: `git tag -d review/<slug>-r*`.
+- File remaining P2/P3 findings as issues (`P2` + `review-finding`).
+- Delete the review tags when they are noise: `git tag -d review/<slug>-r1 review/<slug>-r2`
+  (`git tag -d` does not expand globs, so name each one).
 
 ## Severity rubric
 
-| Level | Meaning                                    | In this repo that has meant                                                                                               |
-| ----- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| P1    | Stuck modifier, crash, data loss, security | Unhandled child-process `error` killing the host; a chord left held machine-wide; a restore overwriting a newer clipboard |
-| P2    | Wrong behaviour on a realistic path        | Touchpad deadzone discarding slow movement; a config edit with no recovery path                                           |
-| P3    | Robustness, maintainability                | Missing CSP; unvalidated IPC sender                                                                                       |
+| Level | Meaning                                                        | In this repo that has meant                                                                                         |
+| ----- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| P1    | Stuck modifier, crash, data loss, reachable security bug       | Unhandled child-process `error` killing the host; a chord left held machine-wide; a restore overwriting a clipboard |
+| P2    | Wrong behaviour on a realistic path                            | Touchpad deadzone discarding slow movement; a config edit with no recovery path                                     |
+| P3    | Robustness, maintainability, hardening without a known exploit | Missing CSP; unvalidated IPC sender while only one renderer exists                                                  |
 
 ## Environment notes
 
-- **This checkout is iCloud-synced.** Files report `dataless` and block on read. Keep worktrees
-  and clones outside `~/Documents`. `find . -flags +dataless | head` tells you if you are bitten.
+- **This checkout is iCloud-synced.** Files report `dataless` and block on read. Keep review
+  checkouts outside `~/Documents`.
 - **If a git command hangs** — `push` sitting for minutes, `tsc` stalling — iCloud has probably
-  evicted objects again. Pull them back in parallel before assuming the remote is at fault:
+  evicted objects. A linked worktree has a `.git` _file_, so resolve the real object store
+  first:
 
   ```sh
-  find .git -flags +dataless -type f | wc -l     # non-zero: evicted
-  find .git -flags +dataless -type f -print0 \
+  GIT_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
+  find "$GIT_DIR" -flags +dataless -type f | wc -l     # non-zero: evicted
+  find "$GIT_DIR" -flags +dataless -type f -print0 \
     | xargs -0 -P 12 -n 1 sh -c 'cat "$0" >/dev/null'
   ```
 
   The second command took a 57-second `git push` down to an instant one. Evicted objects are
-  also why `git push` hangs while `git log` is fine: log reads only commits, push needs blobs.
+  also why `git push` hangs while `git log` is fine: log reads commits, push needs blobs.
 
 - **`gh` and `npm` live under `/opt/homebrew/bin`.** `/usr/local/bin/gh` is an Intel build that
   fails on this machine with "Bad CPU type". Prepend the arm64 path.
@@ -225,8 +279,8 @@ reachable from `main`. The head branch is auto-deleted. Then:
       -c credential.helper='!/opt/homebrew/bin/gh auth git-credential' push
   ```
 
-  Note that reads still work while this is broken — the repo is public, so `fetch`, `ls-remote`
-  and `log` succeed anonymously and only the push blocks.
+  Reads still work while this is broken — the repo is public, so `fetch`, `ls-remote` and `log`
+  succeed anonymously and only the push blocks.
 
 - **Sandboxed agents may not write `~/.npm`.** Use `npm ci --cache /tmp/npm-cache`.
 - **CI is the authoritative gate.** A local run is a pre-check; the branch protection rules key

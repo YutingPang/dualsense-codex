@@ -13,9 +13,10 @@ The non-negotiables:
 - **Review a frozen tree, not a moving branch.** Tag `review/<slug>-rN` before every review round.
 - **The reviewer must not be the context that wrote the code.** A fresh session or subagent, git
   reads only, no access to the authoring conversation. Never use a forked/continued context.
-- **P1 blocks the merge; P2/P3 become issues.** Two review rounds maximum, then ship with the
-  remaining findings filed.
-- **A fix test must fail against the code it fixes.** Revert the fix, watch it fail, put it back.
+- **P1 blocks the merge; P2/P3 become issues.** At most two review rounds per attempt —
+  unresolved P1s mean stop and revise the scope or design, not another loop.
+- **A fix test must fail against the code it fixes**, where such a test is meaningful. Revert the
+  fix, watch it fail, put it back; for hardware behaviour, record what you observed instead.
 
 ## Releases
 
