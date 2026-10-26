@@ -21,7 +21,8 @@ output, and the touchpad pointer.
   writes `~/.openmicro/config.json` only when you press Apply, and refuses to overwrite a file
   that changed underneath it.
 - **Status on the pad.** The lightbar follows the focused session — blue executing, amber
-  waiting, green stopped, red error — and rumble marks the transitions worth noticing.
+  waiting, green stopped — and rumble marks the transitions worth noticing. There is no red
+  state in practice: Codex exposes no error event to map one from.
 - **Terminal workflow included.** The OpenMicro CLI still drives Claude Code and Codex CLI from
   the same controller, with multi-session focus and lightbar status.
 
@@ -43,17 +44,18 @@ Use a native arm64 Node. Under Rosetta the CLI starts, but the arm64 package wil
 > `npm i -g openmicro` installs **upstream** OpenMicro, not this companion. The desktop app is not
 > published to npm.
 
-macOS asks for Accessibility and Automation permission the first time the companion synthesises a
-keystroke or opens the app. Grant it to **DualSense for Codex**; without it, commands are dropped
-silently.
+macOS asks for **Accessibility** permission (and **Automation** for System Events) the first time
+the companion synthesises a keystroke. Grant it to **DualSense for Codex**. Without it the
+shortcut never reaches the app; the companion prints the failing command and a permission hint
+rather than failing silently.
 
 ## One-time setup in the ChatGPT/Codex app
 
 Two chords are user-assigned inside the app, and OpenMicro cannot set them for you. Open
 **Settings → Keyboard shortcuts**:
 
-- **Dictation → `⌃⇧D`** (Control+Shift+D) so △ holds push-to-talk. A different chord means
-  push-to-talk does nothing until you remap `push_to_talk` to matching `keys`.
+- **Dictation → `⌃⇧D`** (Control+Shift+D) so △ holds push-to-talk. The chord is fixed in the
+  harness — assigning some other shortcut inside the app will not move it.
 - **Increase / Decrease reasoning effort → `⌃⌥=` / `⌃⌥-`** so right-stick flicks step the
   reasoning level. These avoid the app's ⌘ `+`/`-` zoom bindings on the same keys.
 - Optional: **Model picker → `⌃⇧M`**, so R3 opens it and you can watch the level change.
@@ -75,20 +77,25 @@ physically — use the model picker for that one.
 | Left stick flick ↑ ↓ ← →  | Workflow prompts: review PR / debug / refactor / tests |
 | Right stick flick → ←     | Increase / decrease reasoning effort                   |
 | R1                        | Shift+Tab — cycle permission modes                     |
-| R2                        | Ctrl+U — clear the input line                          |
-| L3                        | Focus the next session                                 |
+| R2                        | Clear the input (select-all + delete in the app)       |
+| L2                        | Jump to the next project                               |
+| L3                        | Cycle chats in the current project                     |
 | R3                        | Open the model picker (needs the `⌃⇧M` shortcut)       |
 | Options                   | Escape — close, cancel, or interrupt                   |
 | Create                    | New task                                               |
 | Touchpad click            | Primary mouse click                                    |
 | Touchpad drag             | Move the pointer (one finger), scroll (two fingers)    |
-| L1 + face button or d-pad | Select one of six layers                               |
+| L1 + face button or d-pad | Select one of six layers (d-pad up/down only)          |
 | PS button                 | Launch or focus ChatGPT                                |
 
 L1 is the layer modifier unless you bind it explicitly; the first layer ships with these defaults,
-the other five start empty. Everything is remappable in the editor.
+the other five start empty. Stick flicks fire after the stick returns to centre.
 
-In the terminal CLI, L2 cycles herdr spaces and touchpad click cycles session focus instead.
+Workflow prompts prefill the composer rather than sending — press ✕ to submit. Most controls are
+remappable in the editor, but touchpad click, touch gestures, and the PS button are handled by the
+desktop wrapper and ignore bindings.
+
+In the terminal CLI, L2 cycles herdr workspaces and touchpad click cycles session focus instead.
 
 ## Configuration
 
@@ -103,7 +110,8 @@ your config. Actions include `accept`, `reject`, `clear_input`, `push_to_talk`, 
 
 ## The terminal CLI
 
-The CLI is the same controller engine without the desktop shell:
+The CLI is the same controller engine without the desktop shell. Claude Code and Codex CLI must
+already be installed and on your `PATH` — the harnesses launch them, they are not bundled:
 
 ```sh
 npm run dev -- claude      # Claude Code in a pty
@@ -120,8 +128,8 @@ unmapped instead of sending a guessed keystroke. Hook installation is automatic 
 you to trust the hooks in `/hooks`.
 
 Controller support depends on the device and transport. See [CONTROLLERS.md](CONTROLLERS.md), or
-run the doctor to check yours. `openmicro doctor` writes a report that can be committed unchanged
-to `test/fixtures/controllers/`, where CI replays it as a regression test.
+run `npm run dev -- doctor` to check yours. The doctor writes a report that can be committed
+unchanged to `test/fixtures/controllers/`, where CI replays it as a regression test.
 
 ## Library APIs
 
