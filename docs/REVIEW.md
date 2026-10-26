@@ -52,18 +52,14 @@ git switch -c feat/<slug>
 One commit per concern. Fold fixups before review (`git rebase -i "$BASE"`) — a reviewer cannot
 hold a 12k-line diff, but it can hold 400 lines.
 
-## 2. Publish the branch and freeze the head
-
-`gh pr create --head` does **not** push the branch for you, so publish it first.
+## 2. Freeze the head
 
 ```sh
-git push -u origin feat/<slug>
 git tag review/<slug>-r1 HEAD
-git push origin review/<slug>-r1
 ```
 
 The tag is the PR head. The branch may keep moving; the reviewed tree cannot. Re-freeze after
-every round of fixes: `-r2`, `-r3`.
+every round of fixes: `-r2`.
 
 ## 3. Run the gate outside your checkout
 
@@ -78,10 +74,13 @@ database, so it fixes the `tsc`/`node_modules` problem (the working files are ne
 iCloud eviction of `.git`. If `git` itself keeps stalling, take a real clone instead:
 
 ```sh
-git clone --no-hardlinks ~/Documents/DualSense ~/dev/reviews/<slug>-r1
-cd ~/dev/reviews/<slug>-r1 && git switch review/<slug>-r1
+git clone --no-hardlinks ~/Documents/DualSense ~/dev/clones/<slug>-r1
+cd ~/dev/clones/<slug>-r1 && git switch --detach review/<slug>-r1
 npm ci && npm run verify
 ```
+
+Note the different destination: the worktree above already occupies `~/dev/reviews/<slug>-r1`,
+and `git clone` refuses a non-empty directory. `--detach` is required — the tag is not a branch.
 
 `--no-hardlinks` matters: hardlinked object files stay tied to the iCloud originals.
 
@@ -89,17 +88,22 @@ If `npm` cannot write `~/.npm`: `npm ci --cache /tmp/npm-cache`.
 
 **You are now in the review checkout, not the author checkout.** Step 7 returns you.
 
-## 4. Open the pull request
+## 4. Publish and open the pull request
 
-From the **author** checkout:
+From the **author** checkout, once step 3 is green:
 
 ```sh
 cd ~/Documents/DualSense
 git switch feat/<slug>
-# fill in .github/pull_request_template.md and save it as /tmp/pr.md
+git push -u origin feat/<slug>
+git push origin review/<slug>-r1
+# fill in .github/pull_request_template.md, save it as /tmp/pr.md
 gh pr create --repo "$REPO" --base main --head feat/<slug> \
   --title "<type>: <summary>" --body-file /tmp/pr.md
 ```
+
+`gh pr create --head` does **not** push the branch for you. Publish only after the gate passes —
+never push a tree you have not verified.
 
 Fill the template honestly. The **Verified** section is the one reviewers trust least and need
 most: say what you ran, what you ran it on, and what you did not verify.
@@ -180,6 +184,8 @@ Never invent a line number — confirm each citation with git show or grep befor
 
 - **P1 blocks the merge.** Fix it on the same branch.
 - **P2/P3 become issues**, not review rounds — unless the fix is trivial and in the same file.
+  File the accepted ones **before** merging (`P2` + `review-finding`), so the merge cannot quietly
+  bury them.
 - Reproduce a finding before acting on it. If it is a false positive, close it in the thread
   with the evidence that disproves it — do not silently ignore it, and do not argue it down
   without evidence either way.
@@ -192,12 +198,17 @@ Back in the author checkout — **not** the review worktree from step 3:
 cd ~/Documents/DualSense
 git switch feat/<slug>
 # fix
+git add -A
 npm run verify
-git commit -am "fix: <what the review found>"
-git push
+git commit -m "fix: <what the review found>"
 git tag review/<slug>-r2 HEAD
+git push origin feat/<slug>
 git push origin review/<slug>-r2
 ```
+
+`git add -A` before the gate, not `commit -am` after it: `-a` only stages **tracked** changes, so
+a new regression test or new source file would be tested but never committed — and the frozen
+tag would silently exclude the evidence.
 
 Every fix for a real defect needs a test that **fails against the old code**, where such a test
 is meaningful. Verify it by temporarily reverting the fix, watching the test fail, and putting
@@ -227,9 +238,10 @@ the design rather than looping. Accepted P2/P3 findings are filed as issues befo
 Merge the exact commit that was reviewed:
 
 ```sh
+# the round the final review actually named — r2 only if a second round happened
+REVIEWED=$(git rev-parse review/<slug>-rN)
 gh pr view <n> --repo "$REPO" --json headRefOid,mergeable,statusCheckRollup
-gh pr merge <n> --repo "$REPO" --merge \
-  --match-head-commit "$(git rev-parse review/<slug>-r2)"
+gh pr merge <n> --repo "$REPO" --merge --match-head-commit "$REVIEWED"
 ```
 
 `--match-head-commit` aborts if anything landed on the branch after the verdict — the guard
@@ -238,7 +250,6 @@ that makes "the reviewed SHA is what merges" true rather than aspirational.
 A merge commit, not a squash: it keeps the individual fix commits and the review trail
 reachable from `main`. The head branch is auto-deleted. Then:
 
-- File remaining P2/P3 findings as issues (`P2` + `review-finding`).
 - Delete the review tags when they are noise: `git tag -d review/<slug>-r1 review/<slug>-r2`
   (`git tag -d` does not expand globs, so name each one).
 
