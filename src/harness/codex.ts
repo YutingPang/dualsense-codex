@@ -50,6 +50,8 @@ export const codexHarness: Harness = {
         return { bytes: '\r' } // Enter submits
       case 'reject':
         return { bytes: '\x1b' } // Esc interrupts the running turn
+      case 'clear_input':
+        return { bytes: '\x15' } // Ctrl+U clears the unsent input line
       case 'new_chat':
         return { bytes: '/new\r' } // "start a new chat during a conversation"
       case 'prompt':

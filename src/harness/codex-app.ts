@@ -10,9 +10,15 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { installCodexHooks } from '../hooks-install.js'
+import { ChordQueue } from '../chord-queue.js'
+import { appleScriptShortcutSteps } from '../keyboard-shortcut.js'
 import { logger } from '../logger.js'
 import { codexHarness } from './codex.js'
 import type { Action, AgentState, Harness } from './types.js'
+
+// Activate by bundle id, not by app name: the Codex app now ships as ChatGPT,
+// and `tell application "Codex"` fails on installs that only have ChatGPT.app.
+const CODEX_APP = 'application id "com.openai.codex"'
 
 // Terminal byte sequences with a System Events equivalent — lets the default
 // layer's `keys` bindings (d-pad arrows, Shift+Tab clear/cycle, Ctrl+U) drive
@@ -55,9 +61,10 @@ const RELEASE_ALL: string[] = [
 ]
 
 // Chords must run strictly one at a time — two concurrent osascripts can
-// interleave their key down/up steps and strand a modifier. execFile timeout
-// bounds a hung osascript so the queue always drains.
-let osascriptQueue: Promise<void> = Promise.resolve()
+// interleave their key down/up steps and strand a modifier. The queue is
+// cancellable so pause/apply/quit can drop chords that have not started yet;
+// dispose() waits for the in-flight one before releasing keys.
+const osascriptQueue = new ChordQueue()
 
 // CoreGraphics has no Node API and AppleScript cannot move the pointer. Keep a
 // tiny Swift/CoreGraphics process alive and stream relative deltas to it; Swift
@@ -176,7 +183,7 @@ const PASTE_PROMPT_SCRIPT = `on run argv
   end try
   try
     set the clipboard to promptText
-    tell application "Codex" to activate
+    tell ${CODEX_APP} to activate
     delay 0.15
     tell application "System Events" to keystroke "v" using command down
     delay 0.1
@@ -193,7 +200,7 @@ function enqueueOsascript(
   args: string[],
   done: (err: Error | null, stderr?: string) => void,
 ): void {
-  osascriptQueue = osascriptQueue.then(
+  osascriptQueue.run(
     () =>
       new Promise<void>((resolve) => {
         execFile('osascript', args, { timeout: 5000 }, (err, _stdout, stderr) => {
@@ -397,11 +404,11 @@ export const codexAppHarness: Harness = {
       case 'accept':
         return { bytes: 'osascript:keystroke return' }
       case 'push_to_talk':
-        // Ctrl+Shift+D = the app's composer.startDictation binding, and it is
-        // hold-to-dictate: mic engages while the keys stay down, transcript
-        // inserts on release. The cli forwards the controller edge in
-        // action.pressed — button down holds the chord, button up releases it
-        // — so dictation runs exactly while the button is held.
+        // Holds Control+Shift+D, which must match the ChatGPT app's *global*
+        // "Dictation shortcut". Current builds ship that shortcut unassigned
+        // (Settings → Keyboard shortcuts → search "dictation" → assign ⌃⇧D),
+        // so this is a one-time app setup, not an app invariant. The cli
+        // forwards both edges: down holds the chord, up releases it.
         return action.pressed === false
           ? { bytes: 'osascript:key up "d"\nkey up shift\nkey up control' }
           : { bytes: 'osascript:key down control\nkey down shift\nkey down "d"' }
@@ -417,6 +424,13 @@ export const codexAppHarness: Harness = {
         return { bytes: 'paste:' + Buffer.from(action.text, 'utf8').toString('base64') }
       case 'reject':
         return { bytes: 'osascript:key code 53' } // Esc — stop generation / dismiss
+      case 'clear_input':
+        // Clear the entire unsent composer, including dictated transcript.
+        return { bytes: 'osascript:keystroke "a" using command down\nkey code 51' }
+      case 'keyboard_shortcut': {
+        const steps = appleScriptShortcutSteps(action.code, action.modifiers)
+        return steps ? { bytes: `osascript:${steps.join('\n')}` } : null
+      }
       case 'thinking_depth':
         // The app ships unassigned "Increase/Decrease reasoning effort"
         // shortcuts (Settings → Keyboard shortcuts). Users assign ⌃⌥= and ⌃⌥-
@@ -466,7 +480,7 @@ export const codexAppHarness: Harness = {
       if (!err) return
       logger.warn('codex-app command failed', stderr || err.message)
       console.error(
-        `\x1b[31m●\x1b[0m ${(stderr || err.message).trim()} — if this is a permission error, allow your terminal under System Settings → Privacy & Security → Accessibility and Automation`,
+        `\x1b[31m●\x1b[0m ${(stderr || err.message).trim()} — if this is a permission error, allow the app running OpenMicro (Terminal or DualSense for Codex) under System Settings → Privacy & Security → Accessibility and Automation`,
       )
     }
     if (tag === 'open') {
@@ -487,8 +501,8 @@ export const codexAppHarness: Harness = {
         if (err) restoreClipboardIfUnchanged(savedClipboard, text)
       })
     } else if (tag === 'osascript') {
-      // System Events keystrokes require the terminal to have Accessibility /
-      // Automation permission. A newline in the payload runs as sequential
+      // System Events keystrokes require the app running OpenMicro to have
+      // Accessibility / Automation permission. A newline in the payload runs as sequential
       // System Events statements (e.g. select-all then delete).
       const steps = payload
         .split('\n')
@@ -496,7 +510,7 @@ export const codexAppHarness: Harness = {
       // The short delay lets activation land before the keystroke — without it
       // a keypress sent while Codex is still coming frontmost is dropped.
       enqueueOsascript(
-        ['-e', 'tell application id "com.openai.codex" to activate', '-e', 'delay 0.15', ...steps],
+        ['-e', `tell ${CODEX_APP} to activate`, '-e', 'delay 0.15', ...steps],
         (err, stderr) => {
           report(err, stderr)
           // A failed/timed-out chord may have landed its `key down` steps but
@@ -520,8 +534,11 @@ export const codexAppHarness: Harness = {
     sendPointerCommand('click', 0, 0)
   },
 
-  dispose(): void {
-    releaseAllKeys()
+  async dispose(): Promise<void> {
+    // Atomic barrier: drop chords that have not started, wait for the in-flight
+    // one, release held keys, then let work queued during the drain proceed.
+    // Reusable — the desktop calls this on pause/apply too.
+    await osascriptQueue.cancel(releaseAllKeys)
     pointerHelper?.kill()
     pointerHelper = null
   },

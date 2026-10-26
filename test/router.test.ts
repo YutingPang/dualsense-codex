@@ -126,12 +126,28 @@ describe('LayerRouter: layer switching', () => {
     router.route(release('l1'))
     tick(GUARD_WINDOW_MS + 1)
 
-    // Still-held south must not fire, and its release is swallowed too.
+    // A duplicate press stays dead, but release returns the original action
+    // so the caller can stop any repeat or held chord that press started.
     expect(router.route(press('south'))).toBeNull()
-    expect(router.route(release('south'))).toBeNull()
+    expect(router.route(release('south'))).toEqual({ type: 'accept' })
 
     // A fresh press after release works normally.
     expect(router.route(press('south'))).toEqual({ type: 'reject' })
+  })
+
+  it('releases the action started before a layer switch instead of the new binding', () => {
+    const config = makeConfig({
+      0: layer('Layer 1', { north: { type: 'push_to_talk' } }),
+      1: layer('Layer 2', { north: { type: 'reject' } }),
+    })
+    const { router, tick } = makeRouter(config)
+    tick(GUARD_WINDOW_MS + 1)
+
+    expect(router.route(press('north'))).toEqual({ type: 'push_to_talk' })
+    router.route(press('l1'))
+    router.route(press('east'))
+
+    expect(router.route(release('north'))).toEqual({ type: 'push_to_talk' })
   })
 
   it('the held-accept race: a press held through the flip cannot fire, but a fresh one can', () => {
@@ -170,7 +186,7 @@ describe('LayerRouter: binding lookup', () => {
     const { router, tick } = makeRouter(DEFAULT_CONFIG)
     tick(GUARD_WINDOW_MS + 1)
     expect(router.route(press('south'))).toEqual({ type: 'accept' })
-    expect(router.route(press('east'))).toEqual({ type: 'reject' })
+    expect(router.route(press('east'))).toEqual({ type: 'clear_input' })
     expect(router.route(press('north'))).toEqual({ type: 'push_to_talk' })
     expect(router.route(press('west'))).toEqual({ type: 'new_chat' })
   })
@@ -340,5 +356,42 @@ describe('LayerRouter: stick rotation', () => {
 
     const results = sweep(router, 'right', [0, 30, 60, 90])
     expect(results.every((r) => r === null)).toBe(true)
+  })
+})
+
+describe('LayerRouter: L1 binding lifecycle', () => {
+  it('releases an L1 press made on a layer that no longer binds it', () => {
+    const config = makeConfig({
+      0: layer('Layer 1', { l1: { type: 'push_to_talk' } }),
+      1: layer('Layer 2'),
+    })
+    const { router, tick } = makeRouter(config)
+    tick(GUARD_WINDOW_MS + 1)
+
+    expect(router.route(press('l1'))).toEqual({ type: 'push_to_talk' })
+    router.setLayer(1)
+    // The release must resolve the action its own press started, or the
+    // Control+Shift+D chord stays held.
+    expect(router.route(release('l1'))).toEqual({ type: 'push_to_talk' })
+  })
+
+  it('does not leave the layer modifier latched when L1 gains a binding mid-hold', () => {
+    const config = makeConfig({
+      // L1 starts as the bare modifier, then the layer we flip into binds it.
+      0: layer('Layer 1'),
+      1: layer('Layer 2', { l1: { type: 'accept' } }),
+    })
+    const { router, tick } = makeRouter(config)
+    tick(GUARD_WINDOW_MS + 1)
+
+    router.route(press('l1')) // unbound: l1Held = true
+    router.route(press('east')) // l1 + east jumps to layer 1
+    router.route(release('east'))
+    tick(GUARD_WINDOW_MS + 1)
+    router.route(release('l1')) // old code left l1Held true here
+
+    // With the modifier still latched, south would jump back to layer 0.
+    router.route(press('south'))
+    expect(router.currentLayer).toBe(1)
   })
 })

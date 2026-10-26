@@ -44,6 +44,12 @@ export function dispatchAction(action: Action, deps: DispatchDeps): void {
   // and herdr_space fall through to the harness, which maps them to an in-app
   // equivalent (e.g. next chat / next window) or null.
   const gui = deps.harness.usesPty === false
+  // On a GUI harness hold-to-talk is a held chord: it needs a press edge and a
+  // matching release, and a routed axis gesture (stick flick) has neither — the
+  // harness would emit a key-down that nothing ever releases. A PTY harness
+  // toggles voice from a single action instead, so it legitimately dispatches
+  // without an edge and must not be filtered here.
+  if (gui && action.type === 'push_to_talk' && action.pressed === undefined) return
   switch (action.type) {
     case 'focus_session':
       if (!gui) {

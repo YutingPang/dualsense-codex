@@ -167,6 +167,7 @@ export class LayerRouter {
   private layer = 0
   private guardUntil = 0
   private readonly held = new Set<ButtonId>()
+  private readonly activeButtonActions = new Map<ButtonId, Action>()
   private ignoredHeld = new Set<ButtonId>()
   private l1Held = false
   private readonly now: () => number
@@ -223,8 +224,23 @@ export class LayerRouter {
       // L1 is normally the fixed layer-switch modifier. An explicit binding
       // opts out of that role so users can reclaim the shoulder button (for
       // example, as a desktop-app new-task shortcut).
-      if (this.config.layers[this.layer]?.bindings.l1) return this.lookup('l1')
-      this.l1Held = pressed
+      if (!pressed) {
+        // A release resolves the action its own press started, in whichever
+        // layer that press happened, and always clears modifier state. Looking
+        // the binding up in the current layer instead would strand a held chord
+        // after a layer switch and leave l1Held latched.
+        const activeAction = this.activeButtonActions.get(button) ?? null
+        this.activeButtonActions.delete(button)
+        this.l1Held = false
+        return activeAction
+      }
+      if (this.config.layers[this.layer]?.bindings.l1) {
+        this.l1Held = false
+        const action = this.lookup('l1')
+        if (action) this.activeButtonActions.set(button, action)
+        return action
+      }
+      this.l1Held = true
       return null // pure layer-switch modifier, never itself bound to an Action
     }
 
@@ -239,13 +255,22 @@ export class LayerRouter {
       }
     } else {
       this.held.delete(button)
-      if (this.ignoredHeld.delete(button)) return null // swallow release of a pre-switch press
+      const activeAction = this.activeButtonActions.get(button) ?? null
+      this.activeButtonActions.delete(button)
+      this.ignoredHeld.delete(button)
+      // A release always belongs to the action started by its press. Looking
+      // it up in the current layer can strand repeats or held key chords after
+      // a layer switch or a live configuration update.
+      if (activeAction) return activeAction
+      return null
     }
 
     if (this.ignoredHeld.has(button)) return null
     if (this.now() < this.guardUntil) return null
 
-    return this.lookup(button)
+    const action = this.lookup(button)
+    if (pressed && action) this.activeButtonActions.set(button, action)
+    return action
   }
 
   private routeAxis(axis: AxisId, value: number): Action | null {

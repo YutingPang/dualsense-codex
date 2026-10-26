@@ -30,6 +30,10 @@ describe('controlLabel', () => {
 describe('actionLabel', () => {
   it('names simple actions', () => {
     expect(actionLabel({ type: 'accept' })).toBe('accept')
+    expect(actionLabel({ type: 'clear_input' })).toBe('clear input')
+    expect(
+      actionLabel({ type: 'keyboard_shortcut', code: 'KeyK', modifiers: ['command', 'shift'] }),
+    ).toBe('keyboard shortcut ⌘ ⇧ K')
     expect(actionLabel({ type: 'push_to_talk' })).toBe('push-to-talk')
     expect(actionLabel({ type: 'new_chat' })).toBe('new chat')
     expect(actionLabel({ type: 'herdr_space' })).toBe('cycle herdr space')

@@ -35,6 +35,7 @@ describe('loadConfig / saveConfig', () => {
   })
 
   it('ships useful single-button commands for the remaining standard controls', () => {
+    expect(DEFAULT_CONFIG.layers[0].bindings.east).toEqual({ type: 'clear_input' })
     expect(DEFAULT_CONFIG.layers[0].bindings.l3).toEqual({ type: 'focus_session', index: -1 })
     expect(DEFAULT_CONFIG.layers[0].bindings.menu).toEqual({ type: 'reject' })
     expect(DEFAULT_CONFIG.layers[0].bindings.view).toEqual({ type: 'new_chat' })
@@ -55,6 +56,17 @@ describe('loadConfig / saveConfig', () => {
         ...DEFAULT_CONFIG.layers.slice(1),
       ] as OpenMicroConfig['layers'],
       workflows: { custom: 'do the thing' },
+    }
+    saveConfig(custom, configPath)
+    expect(loadConfig(configPath)).toEqual(custom)
+  })
+
+  it('round-trips a recorded keyboard shortcut binding', () => {
+    const custom: OpenMicroConfig = structuredClone(DEFAULT_CONFIG)
+    custom.layers[0].bindings.west = {
+      type: 'keyboard_shortcut',
+      code: 'KeyK',
+      modifiers: ['command', 'shift'],
     }
     saveConfig(custom, configPath)
     expect(loadConfig(configPath)).toEqual(custom)
@@ -106,5 +118,30 @@ describe('loadConfig / saveConfig', () => {
     })
     fs.writeFileSync(configPath, bad)
     expect(() => loadConfig(configPath)).toThrow(/invalid config/)
+  })
+
+  it('rejects out-of-range colors and layer actions', () => {
+    const bad = structuredClone(DEFAULT_CONFIG) as OpenMicroConfig
+    bad.layers[0].color.r = 256
+    bad.layers[0].bindings.south = { type: 'layer', index: 6 }
+    fs.writeFileSync(configPath, JSON.stringify(bad))
+    expect(() => loadConfig(configPath)).toThrow(/invalid config/)
+  })
+
+  it('rejects unsupported keyboard shortcut keys', () => {
+    const bad = structuredClone(DEFAULT_CONFIG) as OpenMicroConfig
+    bad.layers[0].bindings.west = {
+      type: 'keyboard_shortcut',
+      code: 'Unidentified',
+      modifiers: [],
+    }
+    expect(() => saveConfig(bad, configPath)).toThrow(/unsupported key/)
+  })
+
+  it('rejects a binding that references a missing workflow', () => {
+    const bad = structuredClone(DEFAULT_CONFIG) as OpenMicroConfig
+    bad.layers[0].bindings.south = { type: 'workflow', presetId: 'missing' }
+    fs.writeFileSync(configPath, JSON.stringify(bad))
+    expect(() => loadConfig(configPath)).toThrow(/workflow.*does not exist/)
   })
 })

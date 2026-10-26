@@ -29,6 +29,14 @@ export const DUALSENSE_PIDS = [0x0ce6, 0x0df2] // DualSense, DualSense Edge
 
 const RECONNECT_POLL_MS = 2000
 
+// A device can enumerate yet never connect: another process owns it, the
+// provider's fixed product id does not match, or the connection raced an
+// unplug. Without this timeout the manager waits forever for a `disconnected`
+// event that never comes, leaving the app silently controller-less.
+const CONNECT_TIMEOUT_MS = 2000
+
+export type DriverFactory = () => ControllerHAL | null
+
 /** Detect the best matching device: DualSense > DS4 > Xbox > GameSir > generic gamepad. */
 export function createDriver(): ControllerHAL | null {
   let devices: Device[]
@@ -39,8 +47,13 @@ export function createDriver(): ControllerHAL | null {
     return null
   }
 
-  if (devices.some((d) => d.vendorId === DUALSENSE_VID && DUALSENSE_PIDS.includes(d.productId))) {
-    return new DualSenseDriver()
+  const dualSense = devices.find(
+    (d) => d.vendorId === DUALSENSE_VID && DUALSENSE_PIDS.includes(d.productId),
+  )
+  if (dualSense) {
+    // Pass the detected PID: dualsense-ts enumerates a fixed product id, so an
+    // Edge (0x0df2) is invisible unless the provider is pointed at it.
+    return new DualSenseDriver(dualSense.productId)
   }
   const ds4 = devices.find((d) => d.vendorId === DS4_VID && DS4_PIDS.includes(d.productId))
   if (ds4?.path) {
@@ -79,13 +92,26 @@ export function createDriver(): ControllerHAL | null {
 /**
  * Emits deduplicated ControllerEvents on 'data'. Polls for a controller until
  * one appears, and resumes polling after a disconnect — plugging a controller
- * in or waking it mid-session just works.
+ * in or waking it mid-session just works. A detected device that never connects
+ * (busy, unsupported PID, unplug race) is retried after CONNECT_TIMEOUT_MS.
  */
 export class HidManager extends EventEmitter<{ data: [ControllerEvent] }> {
   private driver: ControllerHAL | null = null
   private deduper = new Deduper()
   private pollTimer: ReturnType<typeof setInterval> | null = null
+  private attachTimer: ReturnType<typeof setTimeout> | null = null
   private stopped = true
+  private pollLogged = false
+  private attachFailureLogged = false
+
+  /**
+   * Args:
+   *     driverFactory (DriverFactory): Injected device probe (tests only).
+   *         Defaults to createDriver().
+   */
+  constructor(private readonly driverFactory: DriverFactory = createDriver) {
+    super()
+  }
 
   /** Live output surface of the active driver (DualSense only), or undefined. */
   get output(): ControllerOutput | undefined {
@@ -95,48 +121,123 @@ export class HidManager extends EventEmitter<{ data: [ControllerEvent] }> {
   start(): void {
     if (!this.stopped) return
     this.stopped = false
+    this.pollLogged = false
+    this.attachFailureLogged = false
     this.attach()
   }
 
   stop(): void {
     this.stopped = true
-    if (this.pollTimer) clearInterval(this.pollTimer)
-    this.pollTimer = null
+    this.clearPollTimer()
+    this.clearAttachTimer()
     this.driver?.stop()
     this.driver = null
   }
 
-  private attach(): void {
+  private attach(prepared?: ControllerHAL): void {
     if (this.stopped) return
-    this.driver = createDriver()
-    if (!this.driver) {
+
+    let candidate = prepared ?? null
+    if (!candidate) {
+      try {
+        candidate = this.driverFactory()
+      } catch (err) {
+        logger.error('controller detection failed', err)
+        this.pollUntilFound()
+        return
+      }
+    }
+    if (!candidate) {
       this.pollUntilFound()
       return
     }
+
+    const driver = candidate
+    this.driver = driver
     this.deduper = new Deduper()
-    this.driver.on('data', (e: ControllerEvent) => {
+    let connected = false
+
+    driver.on('data', (e: ControllerEvent) => {
+      // Late events from a driver we already replaced must not tear down the
+      // current one (the old code stopped `this.driver`, whichever it was).
+      if (this.driver !== driver) return
+      if (e.kind === 'connected') {
+        connected = true
+        this.attachFailureLogged = false
+        this.pollLogged = false
+        this.clearAttachTimer()
+      }
       const filtered = this.deduper.filter(e)
       if (!filtered) return
       this.emit('data', filtered)
-      if (filtered.kind === 'disconnected') {
-        this.driver?.stop()
+      if (filtered.kind !== 'disconnected') return
+      this.clearAttachTimer()
+      driver.stop()
+      this.driver = null
+      this.pollUntilFound()
+    })
+
+    try {
+      driver.start()
+    } catch (err) {
+      logger.error('controller driver failed to start', err)
+      if (this.driver === driver) {
         this.driver = null
+        driver.stop()
         this.pollUntilFound()
       }
-    })
-    this.driver.start()
+      return
+    }
+
+    // Drivers may connect synchronously (raw HID), fail synchronously (the
+    // disconnect above), or stay silent (the timeout below).
+    if (connected || this.driver !== driver) return
+
+    this.attachTimer = setTimeout(() => {
+      this.attachTimer = null
+      if (this.stopped || this.driver !== driver || connected) return
+      if (!this.attachFailureLogged) {
+        this.attachFailureLogged = true
+        logger.warn(
+          `controller detected but did not connect within ${CONNECT_TIMEOUT_MS / 1000}s — retrying (another app may own the device)`,
+        )
+      }
+      driver.stop()
+      this.driver = null
+      this.pollUntilFound()
+    }, CONNECT_TIMEOUT_MS)
+    this.attachTimer.unref?.()
   }
 
   private pollUntilFound(): void {
     if (this.pollTimer || this.stopped) return
-    logger.info('No controller found — polling')
+    if (!this.pollLogged) {
+      this.pollLogged = true
+      logger.info('No controller found — polling')
+    }
     this.pollTimer = setInterval(() => {
-      if (createDriver()) {
-        clearInterval(this.pollTimer!)
-        this.pollTimer = null
-        this.attach()
+      if (this.stopped) return
+      let found: ControllerHAL | null = null
+      try {
+        found = this.driverFactory()
+      } catch (err) {
+        logger.error('controller detection failed', err)
+        return
       }
+      if (!found) return
+      this.clearPollTimer()
+      this.attach(found)
     }, RECONNECT_POLL_MS)
     this.pollTimer.unref()
+  }
+
+  private clearPollTimer(): void {
+    if (this.pollTimer) clearInterval(this.pollTimer)
+    this.pollTimer = null
+  }
+
+  private clearAttachTimer(): void {
+    if (this.attachTimer) clearTimeout(this.attachTimer)
+    this.attachTimer = null
   }
 }

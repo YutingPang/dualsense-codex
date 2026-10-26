@@ -16,7 +16,9 @@ openmicro codex
 openmicro codex-app # drive the Codex macOS desktop app
 ```
 
-`openmicro codex-app` drives the Codex desktop app instead of a terminal CLI: new chat uses a `codex://` deep link, while workflow prompts paste into the current task's composer. Submit (Enter), reject (Esc), dictation (Ctrl+Shift+D), d-pad arrows, prompt paste, and Ctrl+U need Accessibility permission for your terminal. A stick-flick prompt prefills the current composer; press submit to send it. The app launches automatically and the terminal shows live status (controller, actions, agent state).
+`openmicro codex-app` drives the Codex desktop app instead of a terminal CLI: new chat uses a `codex://` deep link, while workflow prompts paste into the current task's composer. Submit (Enter), reject (Esc), dictation (Ctrl+Shift+D), d-pad arrows, prompt paste, Ctrl+U, and recorded keyboard shortcuts need macOS Accessibility/Automation permission for the process running OpenMicro (Terminal for the CLI, DualSense for Codex for the companion). In the desktop companion, choose **Keyboard key / shortcut**, click **Record shortcut**, and press a key or combination such as ⌘K; it is sent to the foreground app. A stick-flick prompt prefills the current composer; press submit to send it. The app launches automatically and the terminal shows live status (controller, actions, agent state).
+
+The current ChatGPT/Codex app ships its **global dictation shortcut** unassigned. Before △ can dictate, open the app's Settings → Keyboard shortcuts, search `dictation`, and assign **Dictation shortcut** to `⌃⇧D` (Control+Shift+D). △ then holds that chord while pressed and releases it on key-up. If you assign a different chord, push-to-talk will not trigger until OpenMicro's hardcoded chord is changed to match.
 
 The thinking-depth dial (right-stick flicks) needs one-time setup: the app ships "Increase reasoning effort" and "Decrease reasoning effort" shortcuts unassigned, and assignments are account-synced so OpenMicro cannot set them for you. In the Codex app open Settings → Keyboard shortcuts, search "effort", and assign Increase to `⌃⌥=` (Control+Option+`=`, Ctrl+Alt on Windows) and Decrease to `⌃⌥-` — right-stick flicks then step the composer's reasoning effort. These chords avoid the app's Ctrl/Cmd `+`/`-` zoom shortcuts. Note the app's own Decrease shortcut stops one step short of the lowest effort level (also when pressed physically) — use the model picker for that. Optionally also assign "Open model picker" to `⌃⇧M` — right-stick click then opens the picker so you can watch the effort change. Assigned different chords? Remap `thinking_depth` in your OpenMicro config to matching `keys` bindings.
 
@@ -35,7 +37,7 @@ Controller support depends on the exact device and connection. Check the [contro
 | Control                                   | Action                                                       |
 | ----------------------------------------- | ------------------------------------------------------------ |
 | south (✕ / A)                             | Submit or confirm                                            |
-| east (○ / B)                              | Interrupt or dismiss                                         |
+| east (○ / B)                              | Clear all unsent input, including dictated text              |
 | north (△ / Y)                             | Push-to-talk                                                 |
 | west (□ / X)                              | Start a new chat                                             |
 | d-pad                                     | Navigate TUI menus; repeats while held                       |
@@ -220,6 +222,36 @@ const state = agentStatus(['waiting'], previousStateKey)
 ```
 
 Each function returns `{ message, tone }` or `null`; agent statuses also return `stateKey` for the next deduplication call. Prompt text and unknown raw key bytes are never included. The embedding application owns output, ANSI styling, successful-action checks, and repeat/release suppression.
+
+## macOS desktop companion
+
+The desktop MVP is an Apple Silicon menu-bar app with a visual binding editor:
+
+```bash
+npm run desktop:start
+npm run desktop:package
+```
+
+Run these commands with a native arm64 Node.js installation. A Node process
+running under Rosetta can start the CLI but cannot reliably produce the arm64
+Electron package.
+
+The packaged application is written to
+`out/DualSense for Codex-darwin-arm64/DualSense for Codex.app`. Closing the
+settings window keeps the menu-bar process running; choose **Quit DualSense for
+Codex** from its menu to stop it.
+
+The companion starts at login and keeps listening even when ChatGPT is closed.
+Its status panel detects the ChatGPT desktop process (the app that now contains
+Codex) separately from the controller connection. Press the DualSense
+PlayStation button to launch or focus ChatGPT; the controller then resumes its
+normal bindings when Codex is ready. If ChatGPT is offline, the companion
+remains idle and continues listening for the next launch.
+
+The editor reads `~/.openmicro/config.json` and writes only when **Apply
+changes** is selected. It rejects stale edits when the file changed outside the
+app. macOS may require Accessibility and Automation permission before
+controller actions can operate Codex.
 
 ## Troubleshooting
 

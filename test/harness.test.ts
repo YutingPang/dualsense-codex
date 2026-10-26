@@ -62,6 +62,7 @@ describe('claude harness', () => {
   it('resolves the verified keybindings', () => {
     expect(claudeHarness.resolveAction({ type: 'accept' }, ctx)).toEqual({ bytes: '\r' })
     expect(claudeHarness.resolveAction({ type: 'reject' }, ctx)).toEqual({ bytes: '\x1b' })
+    expect(claudeHarness.resolveAction({ type: 'clear_input' }, ctx)).toEqual({ bytes: '\x15' })
     expect(claudeHarness.resolveAction({ type: 'push_to_talk' }, ctx)).toEqual({ bytes: ' ' })
     expect(claudeHarness.resolveAction({ type: 'new_chat' }, ctx)).toEqual({ bytes: '/clear\r' })
     expect(claudeHarness.resolveAction({ type: 'prompt', text: 'hi' }, ctx)).toEqual({
@@ -118,6 +119,7 @@ describe('codex harness', () => {
   it('resolves verified keybindings and returns null for documented gaps', () => {
     expect(codexHarness.resolveAction({ type: 'accept' }, ctx)).toEqual({ bytes: '\r' })
     expect(codexHarness.resolveAction({ type: 'reject' }, ctx)).toEqual({ bytes: '\x1b' })
+    expect(codexHarness.resolveAction({ type: 'clear_input' }, ctx)).toEqual({ bytes: '\x15' })
     expect(codexHarness.resolveAction({ type: 'new_chat' }, ctx)).toEqual({ bytes: '/new\r' })
     expect(codexHarness.resolveAction({ type: 'prompt', text: 'hi' }, ctx)).toEqual({
       bytes: 'hi\r',
@@ -178,6 +180,15 @@ describe('codex-app harness', () => {
     expect(codexAppHarness.resolveAction({ type: 'reject' }, ctx)).toEqual({
       bytes: 'osascript:key code 53',
     })
+    expect(codexAppHarness.resolveAction({ type: 'clear_input' }, ctx)).toEqual({
+      bytes: 'osascript:keystroke "a" using command down\nkey code 51',
+    })
+    expect(
+      codexAppHarness.resolveAction(
+        { type: 'keyboard_shortcut', code: 'KeyK', modifiers: ['command'] },
+        ctx,
+      ),
+    ).toEqual({ bytes: 'osascript:key down command\nkey code 40\nkey up command' })
     expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[A' }, ctx)).toEqual({
       bytes: 'osascript:key code 126',
     })
@@ -365,8 +376,8 @@ describe('codex-app harness', () => {
     )
   })
 
-  it('releases all held keys on dispose', () => {
-    codexAppHarness.dispose?.()
+  it('releases all held keys on dispose', async () => {
+    await codexAppHarness.dispose?.()
     expect(execFileSync).toHaveBeenCalledWith(
       'osascript',
       expect.arrayContaining([
@@ -376,6 +387,54 @@ describe('codex-app harness', () => {
       ]),
       { timeout: 3000 },
     )
+  })
+
+  it('waits for the in-flight chord before releasing keys on dispose', async () => {
+    const callbacks: Array<() => void> = []
+    execFile.mockImplementation((...args: unknown[]) => {
+      const callback = args[args.length - 1] as (err: Error | null) => void
+      callbacks.push(() => callback(null))
+    })
+
+    codexAppHarness.execute?.('osascript:key down control\nkey up control')
+    await new Promise((resolve) => setImmediate(resolve)) // let the chord start
+    const disposal = codexAppHarness.dispose?.()
+    await new Promise((resolve) => setImmediate(resolve))
+
+    // Releasing now would let the running chord's key-down land afterwards.
+    expect(execFileSync).not.toHaveBeenCalled()
+    callbacks[0]?.()
+    await disposal
+    expect(execFileSync).toHaveBeenCalled()
+  })
+
+  it('holds a chord queued during dispose until after the release', async () => {
+    const order: string[] = []
+    const pending: Array<() => void> = []
+    let calls = 0
+    execFile.mockImplementation((...args: unknown[]) => {
+      calls += 1
+      order.push(`chord-${calls}`)
+      const callback = args[args.length - 1] as (err: Error | null) => void
+      if (calls === 1) pending.push(() => callback(null))
+      else callback(null)
+    })
+    execFileSync.mockImplementation(() => {
+      order.push('release')
+    })
+
+    codexAppHarness.execute?.('osascript:key down control\nkey up control')
+    await new Promise((resolve) => setImmediate(resolve)) // let the chord start
+    const disposal = codexAppHarness.dispose?.()
+    // A press arriving while the drain is in flight must wait for the release.
+    codexAppHarness.execute?.('osascript:key down shift\nkey up shift')
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(order).toEqual(['chord-1'])
+    pending[0]?.()
+    await disposal
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(order).toEqual(['chord-1', 'release', 'chord-2'])
   })
 
   it('ignores untagged bytes', () => {

@@ -419,6 +419,9 @@ export async function runDoctor(opts: { capture?: boolean } = {}): Promise<void>
     const connected = waitConnected(bus, CONNECT_TIMEOUT_MS)
     driver.start()
     if (!(await connected)) {
+      // Release the device before exiting; otherwise a failed open keeps it
+      // claimed until the process dies and the rerun hits the same error.
+      driver.stop()
       console.error(
         'Controller detected but could not be opened. Close any running openmicro sessions (they hold the device) and rerun. Details: ~/.openmicro/openmicro.log',
       )

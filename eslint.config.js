@@ -8,6 +8,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'games/**/*.js'],
+    ignores: ['dist/**', 'out/**', '.vite/**', '**/.vite/**', 'games/**/*.js'],
   },
 )
