@@ -7,6 +7,7 @@ import { dispatchAction } from '../src/dispatch.js'
 import type { DispatchDeps } from '../src/dispatch.js'
 import { claudeHarness } from '../src/harness/claude.js'
 import { codexHarness } from '../src/harness/codex.js'
+import { codexAppHarness } from '../src/harness/codex-app.js'
 import type { Action, Harness } from '../src/harness/types.js'
 import { DEFAULT_CONFIG } from '../src/layers.js'
 
@@ -108,14 +109,22 @@ describe('dispatchAction', () => {
     expect(writes).toEqual([])
   })
 
-  it('drops hold-to-talk with no press edge instead of holding the chord', () => {
-    // claudeHarness does hold a key for push-to-talk, so a missing guard would
-    // emit the key-down here and never a matching key-up.
-    const { deps, writes } = makeDeps()
+  it('drops hold-to-talk with no press edge on a GUI harness', () => {
+    // The codex app holds Control+Shift+D for the life of the button, so an
+    // edge-less dispatch would be a key-down with no matching key-up.
+    const { deps, writes } = makeDeps({ harness: codexAppHarness })
     dispatchAction({ type: 'push_to_talk' } as Action, deps)
     expect(writes).toEqual([])
 
-    dispatchAction({ type: 'push_to_talk', pressed: true } as Action, deps)
+    dispatchAction({ type: 'push_to_talk', pressed: false } as Action, deps)
+    expect(writes).toHaveLength(1) // the release edge still reaches the harness
+  })
+
+  it('keeps the PTY push-to-talk toggle, which carries no edge', () => {
+    // PTY harnesses toggle voice from a single action (space for Claude), and
+    // the CLI deliberately dispatches those without a pressed value.
+    const { deps, writes } = makeDeps()
+    dispatchAction({ type: 'push_to_talk' } as Action, deps)
     expect(writes).toEqual([' '])
   })
 })

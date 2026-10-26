@@ -375,20 +375,23 @@ describe('LayerRouter: L1 binding lifecycle', () => {
     expect(router.route(release('l1'))).toEqual({ type: 'push_to_talk' })
   })
 
-  it('does not leave the layer modifier latched after a bound L1 release', () => {
+  it('does not leave the layer modifier latched when L1 gains a binding mid-hold', () => {
     const config = makeConfig({
-      0: layer('Layer 1', { l1: { type: 'accept' } }),
-      1: layer('Layer 2'),
+      // L1 starts as the bare modifier, then the layer we flip into binds it.
+      0: layer('Layer 1'),
+      1: layer('Layer 2', { l1: { type: 'accept' } }),
     })
     const { router, tick } = makeRouter(config)
     tick(GUARD_WINDOW_MS + 1)
 
-    router.route(press('l1'))
-    router.route(release('l1'))
+    router.route(press('l1')) // unbound: l1Held = true
+    router.route(press('east')) // l1 + east jumps to layer 1
+    router.route(release('east'))
     tick(GUARD_WINDOW_MS + 1)
+    router.route(release('l1')) // old code left l1Held true here
 
-    // A latched l1Held would turn this east press into a layer switch.
-    router.route(press('east'))
-    expect(router.currentLayer).toBe(0)
+    // With the modifier still latched, south would jump back to layer 0.
+    router.route(press('south'))
+    expect(router.currentLayer).toBe(1)
   })
 })
