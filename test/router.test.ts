@@ -358,3 +358,37 @@ describe('LayerRouter: stick rotation', () => {
     expect(results.every((r) => r === null)).toBe(true)
   })
 })
+
+describe('LayerRouter: L1 binding lifecycle', () => {
+  it('releases an L1 press made on a layer that no longer binds it', () => {
+    const config = makeConfig({
+      0: layer('Layer 1', { l1: { type: 'push_to_talk' } }),
+      1: layer('Layer 2'),
+    })
+    const { router, tick } = makeRouter(config)
+    tick(GUARD_WINDOW_MS + 1)
+
+    expect(router.route(press('l1'))).toEqual({ type: 'push_to_talk' })
+    router.setLayer(1)
+    // The release must resolve the action its own press started, or the
+    // Control+Shift+D chord stays held.
+    expect(router.route(release('l1'))).toEqual({ type: 'push_to_talk' })
+  })
+
+  it('does not leave the layer modifier latched after a bound L1 release', () => {
+    const config = makeConfig({
+      0: layer('Layer 1', { l1: { type: 'accept' } }),
+      1: layer('Layer 2'),
+    })
+    const { router, tick } = makeRouter(config)
+    tick(GUARD_WINDOW_MS + 1)
+
+    router.route(press('l1'))
+    router.route(release('l1'))
+    tick(GUARD_WINDOW_MS + 1)
+
+    // A latched l1Held would turn this east press into a layer switch.
+    router.route(press('east'))
+    expect(router.currentLayer).toBe(0)
+  })
+})

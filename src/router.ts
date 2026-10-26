@@ -224,13 +224,23 @@ export class LayerRouter {
       // L1 is normally the fixed layer-switch modifier. An explicit binding
       // opts out of that role so users can reclaim the shoulder button (for
       // example, as a desktop-app new-task shortcut).
+      if (!pressed) {
+        // A release resolves the action its own press started, in whichever
+        // layer that press happened, and always clears modifier state. Looking
+        // the binding up in the current layer instead would strand a held chord
+        // after a layer switch and leave l1Held latched.
+        const activeAction = this.activeButtonActions.get(button) ?? null
+        this.activeButtonActions.delete(button)
+        this.l1Held = false
+        return activeAction
+      }
       if (this.config.layers[this.layer]?.bindings.l1) {
-        if (!pressed) return this.activeButtonActions.get(button) ?? null
+        this.l1Held = false
         const action = this.lookup('l1')
         if (action) this.activeButtonActions.set(button, action)
         return action
       }
-      this.l1Held = pressed
+      this.l1Held = true
       return null // pure layer-switch modifier, never itself bound to an Action
     }
 
