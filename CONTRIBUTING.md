@@ -2,6 +2,9 @@
 
 Thanks for helping build the open Codex Micro replica. There are three ways in, from zero-code to core.
 
+Proposing work rather than writing it — a bug, an idea, a design question — goes through
+[docs/ISSUES.md](docs/ISSUES.md) and the [work proposal template](.github/ISSUE_TEMPLATE/proposal.md).
+
 ## 1. Test your controller (no code required)
 
 The most valuable contribution: run the hardware diagnostic and submit the result.
