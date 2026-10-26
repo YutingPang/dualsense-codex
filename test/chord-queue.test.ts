@@ -69,6 +69,34 @@ describe('ChordQueue', () => {
     expect(after).toHaveBeenCalledOnce()
   })
 
+  it('runs cleanup before work queued during cancellation', async () => {
+    const order: string[] = []
+    let releaseFirst: () => void = () => {}
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const queue = new ChordQueue()
+
+    queue.run(async () => {
+      await firstGate
+      order.push('old:end')
+    })
+    await tick()
+
+    const cancellation = queue.cancel(() => {
+      order.push('cleanup')
+    })
+    // Simulates a controller press arriving while cleanup is still draining.
+    queue.run(async () => {
+      order.push('new:start')
+    })
+    releaseFirst()
+    await cancellation
+    await queue.settle()
+
+    expect(order).toEqual(['old:end', 'cleanup', 'new:start'])
+  })
+
   it('keeps running after a task rejects', async () => {
     const queue = new ChordQueue()
     const after = vi.fn()

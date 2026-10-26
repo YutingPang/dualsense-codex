@@ -10,6 +10,12 @@ shortcuts, clear-input, rumble). Read-only review; no production code changed.
 > bundle-id activation, and a startup error dialog. The remaining findings still reflect the
 > reviewed tree.
 
+> **Follow-up (same day):** a second Codex review found three residual shutdown/cleanup
+> ordering issues and a stale HID-provider handle. They are fixed in the follow-up commit:
+> an atomic key-release barrier in the chord queue, input stopped before disposal in both
+> entry points, a quit gate that defers repeated Quit, and provider abort on a late
+> connection. The tray test now states that it validates PNG headers, not native decoding.
+
 ## How this review was done, and what it could not verify
 
 Static review of every first-party source file plus targeted probes of the installed

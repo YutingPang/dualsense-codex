@@ -15,8 +15,9 @@ function pngSize(buffer: Buffer): { width: number; height: number } | null {
 describe('tray presentation', () => {
   // Regression: these used to be SVG data URLs. Electron's nativeImage returns
   // an empty 0x0 image for those while `new Tray()` still succeeds, leaving the
-  // menu-bar app invisible.
-  it('returns decodable 18px PNGs for both controller states', () => {
+  // menu-bar app invisible. This checks the PNG envelope and dimensions; actual
+  // nativeImage decoding is guarded at runtime by the text fallback in main.ts.
+  it('returns 18px PNGs with valid headers for both controller states', () => {
     for (const connected of [true, false]) {
       const png = trayIconPng(connected)
       expect(pngSize(png), 'menu-bar icon must be a PNG').toEqual({ width: 18, height: 18 })

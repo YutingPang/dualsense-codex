@@ -20,6 +20,13 @@ module.exports = {
     name: 'DualSense for Codex',
     executableName: 'dualsense-for-codex',
     appBundleId: 'dev.openmicro.dualsense-for-codex',
+    // Required for the Automation (Apple Events) prompt when the app activates
+    // ChatGPT / asks System Events for keystrokes. Without it, a freshly
+    // installed bundle can be denied silently.
+    extendInfo: {
+      NSAppleEventsUsageDescription:
+        'DualSense for Codex sends keystrokes and pastes prompts into ChatGPT and controls System Events.',
+    },
     asar: true,
     // The Vite build bundles application dependencies. Disabling Forge's
     // npm-prune pass avoids a very slow dependency-tree walk on macOS while

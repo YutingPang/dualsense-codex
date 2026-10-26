@@ -144,7 +144,7 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
       })
     } catch (err) {
       logger.error('DualSenseDriver start failed', err)
-      this.provider?.disconnect()
+      this.provider?.abort()
       this.provider = null
       this.controller = null
       // HidManager only re-polls after a disconnect event; without this a
@@ -155,7 +155,7 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
 
   stop(): void {
     this.controller?.dispose()
-    this.provider?.disconnect()
+    this.provider?.abort()
     this.controller = null
     this.provider = null
   }

@@ -345,11 +345,11 @@ export const codexAppHarness: Harness = {
       case 'accept':
         return { bytes: 'osascript:keystroke return' }
       case 'push_to_talk':
-        // Ctrl+Shift+D = the app's composer.startDictation binding, and it is
-        // hold-to-dictate: mic engages while the keys stay down, transcript
-        // inserts on release. The cli forwards the controller edge in
-        // action.pressed — button down holds the chord, button up releases it
-        // — so dictation runs exactly while the button is held.
+        // Holds Control+Shift+D, which must match the ChatGPT app's *global*
+        // "Dictation shortcut". Current builds ship that shortcut unassigned
+        // (Settings → Keyboard shortcuts → search "dictation" → assign ⌃⇧D),
+        // so this is a one-time app setup, not an app invariant. The cli
+        // forwards both edges: down holds the chord, up releases it.
         return action.pressed === false
           ? { bytes: 'osascript:key up "d"\nkey up shift\nkey up control' }
           : { bytes: 'osascript:key down control\nkey down shift\nkey down "d"' }
@@ -470,11 +470,10 @@ export const codexAppHarness: Harness = {
   },
 
   async dispose(): Promise<void> {
-    // Drop chords that have not started and wait for the in-flight one: a
-    // queued `key down` must never land after releaseAllKeys(), or it strands
-    // a modifier machine-wide. Reusable — the desktop calls this on pause too.
-    await osascriptQueue.cancel()
-    releaseAllKeys()
+    // Atomic barrier: drop chords that have not started, wait for the in-flight
+    // one, release held keys, then let work queued during the drain proceed.
+    // Reusable — the desktop calls this on pause/apply too.
+    await osascriptQueue.cancel(releaseAllKeys)
     pointerHelper?.kill()
     pointerHelper = null
   },

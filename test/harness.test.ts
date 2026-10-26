@@ -393,7 +393,7 @@ describe('codex-app harness', () => {
     const callbacks: Array<() => void> = []
     execFile.mockImplementation((...args: unknown[]) => {
       const callback = args[args.length - 1] as (err: Error | null) => void
-      callbacks.push(() => callback(null, '', ''))
+      callbacks.push(() => callback(null))
     })
 
     codexAppHarness.execute?.('osascript:key down control\nkey up control')
@@ -406,6 +406,35 @@ describe('codex-app harness', () => {
     callbacks[0]?.()
     await disposal
     expect(execFileSync).toHaveBeenCalled()
+  })
+
+  it('holds a chord queued during dispose until after the release', async () => {
+    const order: string[] = []
+    const pending: Array<() => void> = []
+    let calls = 0
+    execFile.mockImplementation((...args: unknown[]) => {
+      calls += 1
+      order.push(`chord-${calls}`)
+      const callback = args[args.length - 1] as (err: Error | null) => void
+      if (calls === 1) pending.push(() => callback(null))
+      else callback(null)
+    })
+    execFileSync.mockImplementation(() => {
+      order.push('release')
+    })
+
+    codexAppHarness.execute?.('osascript:key down control\nkey up control')
+    await new Promise((resolve) => setImmediate(resolve)) // let the chord start
+    const disposal = codexAppHarness.dispose?.()
+    // A press arriving while the drain is in flight must wait for the release.
+    codexAppHarness.execute?.('osascript:key down shift\nkey up shift')
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(order).toEqual(['chord-1'])
+    pending[0]?.()
+    await disposal
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(order).toEqual(['chord-1', 'release', 'chord-2'])
   })
 
   it('ignores untagged bytes', () => {

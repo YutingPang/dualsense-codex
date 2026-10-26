@@ -38,6 +38,7 @@ import { AgentPty } from './pty.js'
 import { TouchpadGestureTracker } from './pointer.js'
 import { LayerRouter } from './router.js'
 import { HostServer } from './server.js'
+import { ShutdownCoordinator } from './shutdown.js'
 import { nextFocus } from './state.js'
 import type { Aggregate } from './state.js'
 import type { ButtonId, ControllerEvent, ControllerType } from './types.js'
@@ -108,21 +109,27 @@ const server = new HostServer(harness, wrapperId)
 const isHost = await server.listen(HOST_PORT)
 
 let hid: HidManager | null = null
+let shuttingDown = false
+// Assigned by the host branch once its repeat/touch state exists.
+let stopHostInput: () => void = () => {}
 
-// Async because a GUI harness must drain queued synthetic key chords before
-// the process exits; a late `key down` would strand a modifier machine-wide.
-// Memoised so the pty exit callback and a signal handler cannot run it twice.
-let shutdownPromise: Promise<void> | null = null
-function shutdown(): Promise<void> {
-  shutdownPromise ??= (async () => {
-    await agent.dispose()
+// Order matters: stop every input producer *before* awaiting the harness drain.
+// Otherwise controller events, d-pad repeats, or client-delivered keys can be
+// enqueued after cancellation and fire after the final key release / exit.
+const shutdownCoordinator = new ShutdownCoordinator({
+  stopInput: () => {
+    shuttingDown = true
+    hid?.stop()
+    stopHostInput()
+    server.close()
+  },
+  dispose: () => agent.dispose(),
+  finish: () => {
     if (herdrPaneId) releaseAgent(herdrPaneId)
-    if (isHost) {
-      server.close()
-      hid?.stop()
-    }
-  })()
-  return shutdownPromise
+  },
+})
+function shutdown(): Promise<void> {
+  return shutdownCoordinator.run()
 }
 
 // GUI harnesses (usesPty: false) drive a desktop app instead of spawning a
@@ -162,7 +169,9 @@ const agent: AgentHandle = usesPty
       harness.buildArgs(invocation.agentArgs),
       wrapperId,
       (code) => {
-        void shutdown().finally(() => process.exit(code))
+        void shutdown()
+          .catch((err: unknown) => logger.warn('shutdown failed', err))
+          .finally(() => process.exit(code))
       },
       // Terminal focus changes (window switch, tmux/herdr pane click) go to the
       // host — voice must disengage the moment its terminal is no longer active.
@@ -192,11 +201,15 @@ process.on('SIGINT', () => {
   if (usesPty) {
     agent.write('\x03')
   } else {
-    void shutdown().finally(() => process.exit(130))
+    void shutdown()
+      .catch((err: unknown) => logger.warn('shutdown failed', err))
+      .finally(() => process.exit(130))
   }
 })
 process.on('SIGTERM', () => {
-  void shutdown().finally(() => process.exit(0))
+  void shutdown()
+    .catch((err: unknown) => logger.warn('shutdown failed', err))
+    .finally(() => process.exit(0))
 })
 
 if (!isHost) {
@@ -240,6 +253,7 @@ if (!isHost) {
 
   /** Terminal writes go to the focused session's instance, else our own pty. */
   function writeToFocused(bytes: string): void {
+    if (shuttingDown) return // no new work after shutdown has begun
     // The foreign-pane guard protects terminal panes; a GUI harness targets
     // the app itself, so pane focus must not gate its input.
     if (herdrForeignFocus && usesPty) return // typing into an invisible pane is worse than a no-op
@@ -416,6 +430,7 @@ if (!isHost) {
 
   /** Toggle dictation off in whichever pane still holds it open. */
   function stopVoice(): void {
+    if (shuttingDown) return // dispose() releases synthetic keys during shutdown
     if (voiceSessionKey === null) return
     const off = harness.resolveAction({ type: 'push_to_talk' }, { thinkingLevel: 0 })
     if (off) {
@@ -512,12 +527,17 @@ if (!isHost) {
 
   let padType: ControllerType = 'generic-hid'
   const touchpadGesture = new TouchpadGestureTracker()
+  stopHostInput = () => {
+    repeater.releaseAll()
+    touchpadGesture.reset()
+  }
   // One status line per routed action: "triangle → push-to-talk" (physical
   // name per pad family), replacing the raw keystroke payload dump.
   const announce = (action: Action): void => {
     reportGuiStatus(actionStatus(router.lastControl, padType, action))
   }
   hid.on('data', (e: ControllerEvent) => {
+    if (shuttingDown) return // drop events that race hid.stop()
     try {
       if (e.kind === 'connected') {
         padType = e.controllerType

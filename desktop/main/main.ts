@@ -10,6 +10,7 @@ import { logger } from '../../src/logger.js'
 import type { ApplyConfigRequest, ConfigEnvelope, DesktopSnapshot } from '../shared/contracts.js'
 import { IPC } from '../shared/contracts.js'
 import { DesktopRuntime } from './runtime.js'
+import { QuitGate } from './quit-gate.js'
 import { trayIconDataUrl, trayStateKey, trayTooltip, type TrayState } from './tray.js'
 
 function configRevision(config: unknown): string {
@@ -45,8 +46,7 @@ let runtime: DesktopRuntime | null = null
 let chatGptRunning = false
 let chatGptPoll: ReturnType<typeof setInterval> | null = null
 let lastTrayStateKey: string | null = null
-let quitAfterShutdown = false
-let shutdownComplete = false
+const quitGate = new QuitGate()
 
 function notifySnapshot(): void {
   updateTrayPresentation()
@@ -254,6 +254,11 @@ function showMainWindow(): void {
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
     if (!isMainFrame) return
     logger.error('settings window failed to load', { code, description, url })
+    // Drop the broken window so opening Settings retries the load instead of
+    // presenting a permanently blank webContents.
+    const failed = mainWindow
+    failed?.destroy()
+    if (mainWindow === failed) mainWindow = null
     dialog.showErrorBox(
       'DualSense for Codex',
       `The settings window failed to load (${code} ${description}).\n\nLog: ~/.openmicro/openmicro.log`,
@@ -280,37 +285,28 @@ if (!hasLock) {
   app.on('second-instance', () => showMainWindow())
   app.on('before-quit', (event) => {
     quitting = true
-    if (shutdownComplete) {
+    const phase = quitGate.begin()
+    if (phase === 'finished') {
       destroyTray()
       return
     }
+    // Defer the first quit while draining, and every repeated Quit too: the
+    // old null-runtime branch let a second Cmd+Q exit mid-drain and strand
+    // modifiers. See QuitGate.
+    event.preventDefault()
+    if (phase === 'waiting') return
+
     if (chatGptPoll) clearInterval(chatGptPoll)
     chatGptPoll = null
-
     const activeRuntime = runtime
     runtime = null
-    if (!activeRuntime) {
-      destroyTray()
-      return
-    }
-    if (quitAfterShutdown) {
-      // A second Quit while the harness is draining must not skip the wait.
-      event.preventDefault()
-      return
-    }
-
-    // The GUI harness may still own synthetic key chords. Wait for its
-    // cancellation/drain (bounded) before the process exits, so Quit can never
-    // strand a modifier key machine-wide. See codex-app dispose().
-    event.preventDefault()
-    quitAfterShutdown = true
     const timeout = new Promise<void>((resolve) => {
       setTimeout(resolve, 6000).unref?.()
     })
-    void Promise.race([activeRuntime.stop(), timeout])
+    void Promise.race([activeRuntime ? activeRuntime.stop() : Promise.resolve(), timeout])
       .catch((error: unknown) => logger.warn('runtime shutdown failed', error))
       .finally(() => {
-        shutdownComplete = true
+        quitGate.complete()
         destroyTray()
         app.quit()
       })
@@ -363,8 +359,10 @@ if (!hasLock) {
     if (!app.getLoginItemSettings().wasOpenedAtLogin) showMainWindow()
   }
 
-  // Without this catch, an invalid config or a missing native prebuild leaves
-  // no window, no tray, and no diagnosis: the process stays alive invisibly.
+  // Catch configuration and runtime-start failures so they surface in a dialog
+  // instead of an invisible process. Failures during static imports (e.g. a
+  // missing native prebuild) happen before this promise chain and cannot be
+  // caught here.
   void app
     .whenReady()
     .then(startCompanion)
