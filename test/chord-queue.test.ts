@@ -111,4 +111,39 @@ describe('ChordQueue', () => {
 
     expect(after).toHaveBeenCalledOnce()
   })
+
+  it('invalidates work queued between two overlapping cancellations', async () => {
+    const order: string[] = []
+    let releaseFirst: () => void = () => {}
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const queue = new ChordQueue()
+
+    queue.run(async () => {
+      await firstGate
+      order.push('first')
+    })
+    await tick() // let the first chord start so it is genuinely in flight
+    const firstCancel = queue.cancel(() => {
+      order.push('cleanup:first')
+    })
+    // Queued while the first drain is still waiting on the in-flight chord.
+    queue.run(async () => {
+      order.push('queued-between-cancels')
+    })
+    const secondCancel = queue.cancel(() => {
+      order.push('cleanup:second')
+    })
+    await tick()
+
+    releaseFirst()
+    await secondCancel
+    await firstCancel
+    await queue.settle()
+
+    // The second cancellation must invalidate the press queued before it and
+    // still run its own cleanup, or that chord lands after the release sweep.
+    expect(order).toEqual(['first', 'cleanup:first', 'cleanup:second'])
+  })
 })

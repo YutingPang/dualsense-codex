@@ -14,8 +14,7 @@ export class ChordQueue {
   private tail: Promise<void> = Promise.resolve()
   private generation = 0
   private gate: Promise<void> = Promise.resolve()
-  private openGate: (() => void) | null = null
-  private draining: Promise<void> | null = null
+  private drainChain: Promise<void> = Promise.resolve()
 
   /**
    * Queue a task. Tasks queued before a cancel() are silently skipped; tasks
@@ -55,36 +54,42 @@ export class ChordQueue {
    * Cancel queued tasks, drain the in-flight one, run cleanup, then reopen the
    * queue. New work submitted while waiting starts only after cleanup.
    *
+   * Cancellations queue up rather than collapsing: one that arrives while an
+   * earlier drain is still running invalidates whatever was submitted since,
+   * and runs its own cleanup after that drain. Returning the in-flight drain
+   * instead (the previous behaviour) let a key-down queued between two pauses
+   * survive the release sweep.
+   *
    * Args:
    *     cleanup (function): Key-release/cleanup work run at the barrier.
    *
    * Returns:
    *     Promise<void>: Resolves when cleanup has completed and new work may run.
    */
-  async cancel(cleanup: () => void | Promise<void> = () => {}): Promise<void> {
-    if (this.draining) return this.draining
+  cancel(cleanup: () => void | Promise<void> = () => {}): Promise<void> {
     this.generation += 1
+    let open = (): void => {}
     const gate = new Promise<void>((resolve) => {
-      this.openGate = () => resolve()
+      open = resolve
     })
     this.gate = gate
     const previous = this.tail
-    this.draining = (async () => {
+    const drain = this.drainChain.then(async () => {
       await previous.catch(() => {
         // The in-flight task's failure was already reported by its caller.
       })
       try {
         await cleanup()
       } finally {
-        // Always reopen, including when cleanup throws, so a failed release
-        // cannot wedge pause/resume forever.
-        this.openGate?.()
-        this.openGate = null
-        this.gate = Promise.resolve()
+        // Reopen this cancellation's gate only: a later cancellation installed
+        // its own gate and must stay closed until its own cleanup has run.
+        if (this.gate === gate) this.gate = Promise.resolve()
+        open()
       }
-    })().finally(() => {
-      this.draining = null
     })
-    return this.draining
+    this.drainChain = drain.catch(() => {
+      // A failed cleanup is reported to its caller; it must not wedge the chain.
+    })
+    return drain
   }
 }
