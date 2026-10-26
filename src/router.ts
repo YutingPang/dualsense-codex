@@ -220,6 +220,10 @@ export class LayerRouter {
 
   private routeButton(button: ButtonId, pressed: boolean): Action | null {
     if (button === 'l1') {
+      // L1 is normally the fixed layer-switch modifier. An explicit binding
+      // opts out of that role so users can reclaim the shoulder button (for
+      // example, as a desktop-app new-task shortcut).
+      if (this.config.layers[this.layer]?.bindings.l1) return this.lookup('l1')
       this.l1Held = pressed
       return null // pure layer-switch modifier, never itself bound to an Action
     }

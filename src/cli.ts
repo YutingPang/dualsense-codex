@@ -35,6 +35,7 @@ import { actionStatus, agentStatus, controllerStatus } from './logging.js'
 import type { GuiStatus, GuiStatusTone } from './logging.js'
 import { HOST_PORT } from './ports.js'
 import { AgentPty } from './pty.js'
+import { TouchpadGestureTracker } from './pointer.js'
 import { LayerRouter } from './router.js'
 import { HostServer } from './server.js'
 import { nextFocus } from './state.js'
@@ -501,6 +502,7 @@ if (!isHost) {
   })
 
   let padType: ControllerType = 'generic-hid'
+  const touchpadGesture = new TouchpadGestureTracker()
   // One status line per routed action: "triangle → push-to-talk" (physical
   // name per pad family), replacing the raw keystroke payload dump.
   const announce = (action: Action): void => {
@@ -518,6 +520,21 @@ if (!isHost) {
       if (e.kind === 'disconnected') {
         repeater.releaseAll()
         reportGuiStatus(controllerStatus(e))
+        touchpadGesture.reset()
+        return
+      }
+      if (e.kind === 'touch') {
+        const gesture = touchpadGesture.update(e)
+        if (gesture && !usesPty) {
+          if (gesture.type === 'move') harness.movePointer?.(gesture.dx, gesture.dy)
+          else harness.scrollPointer?.(gesture.dx, gesture.dy)
+        }
+        return
+      }
+      // In the desktop app, the DualSense touchpad's physical press is a
+      // primary mouse click. PTY harnesses retain their configurable mapping.
+      if (!usesPty && e.kind === 'button' && e.button === 'touchpad' && harness.clickPointer) {
+        if (e.pressed) harness.clickPointer()
         return
       }
       const action = router.route(e)

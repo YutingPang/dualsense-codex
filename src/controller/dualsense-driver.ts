@@ -2,17 +2,19 @@
 // formats. Ported from the v1 extension (haptics/LED/battery dropped).
 
 import { EventEmitter } from 'node:events'
-import { Dualsense } from 'dualsense-ts'
+import { Dualsense, DualsenseHID } from 'dualsense-ts'
 import type { Axis, Momentary, Trigger } from 'dualsense-ts'
 import { logger } from '../logger.js'
 import type { ControllerHAL } from './hal.js'
 import type { ControllerOutput } from './output.js'
 import type { AxisId, ButtonId, ControllerEvent } from '../types.js'
+import { OpenMicroDualSenseHIDProvider } from './dualsense-bluetooth-output.js'
 
 export class DualSenseDriver extends EventEmitter implements ControllerHAL {
   readonly controllerType = 'dualsense' as const
 
   private controller: Dualsense | null = null
+  private provider: OpenMicroDualSenseHIDProvider | null = null
 
   // dualsense-ts runs a 30 Hz output loop internally: it diffs lightbar/LED
   // state against what was last sent and pushes a HID feature report only on
@@ -29,7 +31,8 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
 
   start(): void {
     try {
-      const c = (this.controller = new Dualsense())
+      const provider = (this.provider = new OpenMicroDualSenseHIDProvider())
+      const c = (this.controller = new Dualsense({ hid: new DualsenseHID(provider) }))
 
       c.connection.on('change', (input: Momentary) => {
         if (input.state) {
@@ -67,8 +70,28 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
       this.button(c.right.analog.button, 'r3')
       this.button(c.options, 'menu')
       this.button(c.create, 'view')
-      // Click only — x/y position is unused (YAGNI).
+      // The physical click remains a normal remappable button. A single touch
+      // is also exposed separately so GUI harnesses can use it as a trackpad.
       this.button(c.touchpad.button, 'touchpad')
+      const emitTouch = (side: 'left' | 'right'): void => {
+        const touch = c.touchpad[side]
+        this.emit('data', {
+          kind: 'touch',
+          touch: `touchpad_${side}`,
+          active: touch.contact.active,
+          x: touch.x.state,
+          y: touch.y.state,
+        } satisfies ControllerEvent)
+      }
+      // Listen to the children explicitly. Touch.state is the Touch object
+      // itself, so some dualsense-ts versions do not emit a parent `change`
+      // when only a nested axis changes (especially with Bluetooth reports).
+      c.touchpad.left.x.on('change', () => emitTouch('left'))
+      c.touchpad.left.y.on('change', () => emitTouch('left'))
+      c.touchpad.left.contact.on('change', () => emitTouch('left'))
+      c.touchpad.right.x.on('change', () => emitTouch('right'))
+      c.touchpad.right.y.on('change', () => emitTouch('right'))
+      c.touchpad.right.contact.on('change', () => emitTouch('right'))
 
       this.axis(c.left.analog.x, 'left_x')
       // dualsense-ts negates hardware Y (up = +1); re-negate to the project
@@ -94,6 +117,7 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
       })
 
       logger.info('DualSenseDriver started')
+      void provider.connect()
     } catch (err) {
       logger.error('DualSenseDriver start failed', err)
     }
@@ -101,7 +125,9 @@ export class DualSenseDriver extends EventEmitter implements ControllerHAL {
 
   stop(): void {
     this.controller?.dispose()
+    this.provider?.disconnect()
     this.controller = null
+    this.provider = null
   }
 
   private button(input: Momentary, id: ButtonId): void {

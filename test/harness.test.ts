@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const execFile = vi.hoisted(() => vi.fn())
 const execFileSync = vi.hoisted(() => vi.fn())
-vi.mock('node:child_process', () => ({ execFile, execFileSync }))
+const spawn = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', () => ({ execFile, execFileSync, spawn }))
 
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
@@ -166,9 +167,10 @@ describe('codex-app harness', () => {
     })
   })
 
-  it('URL-encodes prompt text into the deep link', () => {
-    expect(codexAppHarness.resolveAction({ type: 'prompt', text: 'fix a & b?' }, ctx)).toEqual({
-      bytes: 'open:codex://new?prompt=fix%20a%20%26%20b%3F',
+  it('encodes prompt text for pasting into the current composer', () => {
+    const text = '修复 a & b?'
+    expect(codexAppHarness.resolveAction({ type: 'prompt', text }, ctx)).toEqual({
+      bytes: 'paste:' + Buffer.from(text).toString('base64'),
     })
   })
 
@@ -178,6 +180,20 @@ describe('codex-app harness', () => {
     })
     expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[A' }, ctx)).toEqual({
       bytes: 'osascript:key code 126',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[5~' }, ctx)).toEqual({
+      bytes: 'osascript:key code 116',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[6~' }, ctx)).toEqual({
+      bytes: 'osascript:key code 121',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[91;10u' }, ctx)).toEqual({
+      bytes:
+        'osascript:key down command\nkey down shift\nkey code 33\nkey up shift\nkey up command',
+    })
+    expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x1b[93;10u' }, ctx)).toEqual({
+      bytes:
+        'osascript:key down command\nkey down shift\nkey code 30\nkey up shift\nkey up command',
     })
     expect(codexAppHarness.resolveAction({ type: 'keys', bytes: '\x15' }, ctx)).toEqual({
       bytes: 'osascript:keystroke "a" using command down\nkey code 51',
@@ -292,6 +308,21 @@ describe('codex-app harness', () => {
     expect(execFile).toHaveBeenCalledWith('open', ['codex://new'], expect.any(Function))
   })
 
+  it('pastes prompts into the current composer and preserves Unicode', async () => {
+    const text = '检查当前改动，并修复 a & b?'
+    codexAppHarness.execute?.('paste:' + Buffer.from(text).toString('base64'))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execFile).toHaveBeenCalledWith(
+      'osascript',
+      expect.arrayContaining(['--', text]),
+      { timeout: 5000 },
+      expect.any(Function),
+    )
+    const args = execFile.mock.calls[0]![1] as string[]
+    expect(args.join('\n')).toContain('keystroke "v" using command down')
+    expect(args[1]).not.toContain(text) // text is argv, never interpolated into AppleScript source
+  })
+
   it('executes osascript: bytes as activate + System Events keystroke', async () => {
     codexAppHarness.execute?.('osascript:keystroke return')
     await new Promise((resolve) => setImmediate(resolve)) // queued behind a microtask
@@ -350,5 +381,70 @@ describe('codex-app harness', () => {
   it('ignores untagged bytes', () => {
     codexAppHarness.execute?.('\x03')
     expect(execFile).not.toHaveBeenCalled()
+  })
+
+  it('survives a pointer helper that fails to spawn', () => {
+    const stdinHandlers = new Map<string, (arg?: unknown) => void>()
+    const stdin = {
+      destroyed: false,
+      writable: true,
+      write: vi.fn(),
+      on: vi.fn((event: string, handler: (arg?: unknown) => void) => {
+        stdinHandlers.set(event, handler)
+      }),
+    }
+    const childHandlers = new Map<string, (arg?: unknown) => void>()
+    spawn.mockReturnValue({
+      stdin,
+      stderr: { on: vi.fn() },
+      killed: false,
+      kill: vi.fn(),
+      on: vi.fn((event: string, handler: (arg?: unknown) => void) => {
+        childHandlers.set(event, handler)
+      }),
+    })
+    codexAppHarness.movePointer?.(1, 2)
+    expect(childHandlers.has('error')).toBe(true)
+    expect(stdinHandlers.has('error')).toBe(true)
+    // An unhandled 'error' event throws; the handler must contain it instead.
+    expect(() => childHandlers.get('error')?.(new Error('spawn ENOENT'))).not.toThrow()
+    codexAppHarness.movePointer?.(3, 4)
+    expect(stdin.write).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the clipboard when the paste subprocess is killed', async () => {
+    let reads = 0
+    execFileSync.mockImplementation((command: unknown) => {
+      if (command !== '/usr/bin/pbpaste') return undefined
+      reads += 1
+      // First read is the snapshot; the killed paste left the prompt behind.
+      return reads === 1 ? 'earlier clipboard' : 'draft prompt'
+    })
+    execFile.mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') cb(new Error('ETIMEDOUT'), '', '')
+    })
+    codexAppHarness.execute?.('paste:' + Buffer.from('draft prompt').toString('base64'))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execFileSync).toHaveBeenCalledWith('/usr/bin/pbcopy', {
+      input: 'earlier clipboard',
+      timeout: 1000,
+    })
+  })
+
+  it('leaves a clipboard the user replaced during the paste alone', async () => {
+    let reads = 0
+    execFileSync.mockImplementation((command: unknown) => {
+      if (command !== '/usr/bin/pbpaste') return undefined
+      reads += 1
+      return reads === 1 ? 'earlier clipboard' : 'copied while the paste was running'
+    })
+    execFile.mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') cb(new Error('ETIMEDOUT'), '', '')
+    })
+    codexAppHarness.execute?.('paste:' + Buffer.from('draft prompt').toString('base64'))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execFileSync).not.toHaveBeenCalledWith('/usr/bin/pbcopy', expect.anything())
   })
 })

@@ -40,6 +40,12 @@ export interface Harness {
   ): { bytes: string; thinkingLevel?: number } | null
   /** Side-effect runner for usesPty:false harnesses — the cli calls it with resolveAction's bytes in place of a pty write. */
   execute?(bytes: string): void
+  /** Optional relative system-pointer movement for controllers with a touch surface. */
+  movePointer?(dx: number, dy: number): void
+  /** Optional relative system scrolling for two-finger touch gestures. */
+  scrollPointer?(dx: number, dy: number): void
+  /** Optional primary system-pointer click for a controller touchpad press. */
+  clickPointer?(): void
   /** Shutdown cleanup for usesPty:false harnesses — must undo any lingering system side effects (e.g. release synthetic keys still held down). */
   dispose?(): void
 }

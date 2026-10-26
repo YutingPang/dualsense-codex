@@ -28,5 +28,12 @@ export type ControllerType = 'xbox' | 'dualsense' | 'ds4' | 'gamesir' | 'generic
 export type ControllerEvent =
   | { kind: 'button'; button: ButtonId; pressed: boolean }
   | { kind: 'axis'; axis: AxisId; value: number } // -1.0..1.0 (sticks), 0..1 (triggers)
+  | {
+      kind: 'touch'
+      touch: 'touchpad_left' | 'touchpad_right'
+      active: boolean
+      x: number
+      y: number
+    }
   | { kind: 'connected'; controllerType: ControllerType }
   | { kind: 'disconnected' }
