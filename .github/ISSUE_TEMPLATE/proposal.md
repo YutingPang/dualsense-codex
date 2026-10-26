@@ -34,8 +34,9 @@ and existing behavior that must be preserved. -->
 checks and any manual/hardware checks, who can perform them, and prerequisites.
 Follow docs/REVIEW.md: a fix test must fail without the fix where such a test is meaningful, and
 for behavior no test can reach (hardware, OS permission state) record what was observed instead
-— "not verified" is acceptable there. A criterion whose own text names a check is different: if
-that check cannot be performed, the work stays incomplete rather than passing. -->
+— "not verified" is acceptable there. Recording it is honest, but it does not make the criterion
+met: an unverified criterion is outstanding evidence, not a pass. A criterion whose own text
+names a check is stricter still: if that check cannot be performed, the work stays incomplete. -->
 
 ## Dependencies and open questions
 

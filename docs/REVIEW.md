@@ -235,6 +235,11 @@ the design rather than looping. Accepted P2/P3 findings are filed as issues befo
 
 ## 9. Merge
 
+A merge needs the maintainer's instruction. Green checks, a passing review and a pinned SHA are
+necessary conditions, not authorization — an agent that wrote the change does not decide that it
+lands. The instruction normally arrives as a message on the PR. Without one, stop and ask; do not
+merge on a green run because the rest of this section has been satisfied.
+
 Merge the exact commit that was reviewed:
 
 ```sh

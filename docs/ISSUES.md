@@ -8,7 +8,7 @@ implementing agent should not need the original conversation to understand the i
 
 1. Understand the problem and why it matters. Ask for a concrete example of the current and
    desired behavior. For a bug, capture reproduction steps and relevant environment details
-   such as OS, controller, connection type, and harness.
+   such as OS, controller, connection type, and harness (the agent CLI adapter under `src/harness/`).
 2. Inspect relevant code, documentation, and existing issues when accessible. Distinguish
    observed behavior from user reports and hypotheses. Do not make the user answer questions
    the repository already answers, and do not claim to have checked an issue tracker you
@@ -38,7 +38,7 @@ front matter above that line configures GitHub's template chooser; it is not par
 Strip it before `gh issue create --body-file`, and do not paste it into chat.
 
 Replace the template's HTML comments with concrete content and use "None" or "Not applicable"
-where appropriate, but leave the **Status** and **Approved by** lines and the sentence under
+where appropriate, but leave the Status and Approved by entries and the sentence under
 them exactly as written: those are what a reader of the issue sees, because GitHub does not
 render the comments. Prefer a title describing the outcome or failure, such as "Release held
 modifiers when the controller disconnects".
@@ -58,7 +58,7 @@ outcomes so the next agent can choose an approach based on the code it actually 
 
 ## Approval status
 
-A proposal has one status, and the maintainer sets it. Nothing else about permission is
+A proposal has one status, and the maintainer sets it. Nothing else about merge permission is
 recorded on the issue.
 
 - **Draft** is the default. It can be filed for discussion with open questions. Filing an
@@ -71,7 +71,8 @@ A proposing agent files every proposal as **Draft** and leaves the status lines 
 has them. It does not set Ready and does not record an approval value, because it cannot
 produce evidence that the maintainer approved anything. When the maintainer approves the scope
 they say so in an issue comment; the **Approved by** line points at that comment, and the
-comment — not the line — is the record, so a stale line does not override a later comment.
+comment — not the line — is the record, so a stale line does not override a later comment. The
+maintainer may update the line; it can also stay `none`, because the comment is what counts.
 
 "Maintainer" means the person with merge rights on `main` — on this fork, the repository owner.
 A body edit alone is not approval. An agent must not promote its own proposal to ready, must not
@@ -99,7 +100,8 @@ changes require an updated agreement rather than silent expansion.
 Completion requires every acceptance criterion to be met with the evidence its own text names,
 and the repository review workflow to be satisfied. Where a fix test is meaningful, demonstrate
 that it fails without the fix. For behavior no test can reach — hardware, OS permission state —
-record what was observed instead, as [REVIEW.md](REVIEW.md) allows.
+record what was observed instead, as [REVIEW.md](REVIEW.md) allows. Recording it is honest, but
+it does not make the criterion met: an unverified criterion is outstanding evidence, not a pass.
 
 A criterion whose own text names a check — a specific test, a hardware run, a permission
 state — is different: if that check cannot be performed, the work stays incomplete rather than
