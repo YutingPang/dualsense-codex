@@ -132,22 +132,33 @@ function sendPointerCommand(command: 'move' | 'scroll' | 'click', dx: number, dy
   }
 }
 
-/** Best-effort clipboard snapshot; null when it is unavailable or not text. */
+/**
+ * Best-effort clipboard snapshot. Returns null for an empty, non-text, or
+ * unreadable clipboard: pbpaste only sees text, and restoring through pbcopy
+ * would flatten rich contents to plain text, so there is nothing safe to keep.
+ */
 function readClipboard(): string | null {
   try {
     const value = execFileSync('/usr/bin/pbpaste', { encoding: 'utf8', timeout: 1000 })
-    return typeof value === 'string' ? value : null
+    return typeof value === 'string' && value.length > 0 ? value : null
   } catch (err) {
     logger.warn('could not read clipboard before pasting prompt', err)
     return null
   }
 }
 
-/** Restore a snapshot from readClipboard(); a no-op when there was none. */
-function restoreClipboard(value: string | null): void {
-  if (value === null) return
+/**
+ * Restore a snapshot only while the clipboard still holds the prompt we pasted.
+ * A killed script leaves the prompt behind; if the user copied something else
+ * since (or the script already restored), putting the snapshot back would
+ * destroy newer content.
+ */
+function restoreClipboardIfUnchanged(snapshot: string | null, prompt: string): void {
+  if (snapshot === null || snapshot === prompt) return
   try {
-    execFileSync('/usr/bin/pbcopy', { input: value, timeout: 1000 })
+    const current = execFileSync('/usr/bin/pbpaste', { encoding: 'utf8', timeout: 1000 })
+    if (current !== prompt) return
+    execFileSync('/usr/bin/pbcopy', { input: snapshot, timeout: 1000 })
   } catch (err) {
     logger.warn('could not restore clipboard after pasting prompt', err)
   }
@@ -473,7 +484,7 @@ export const codexAppHarness: Harness = {
       const savedClipboard = readClipboard()
       enqueueOsascript(['-e', PASTE_PROMPT_SCRIPT, '--', text], (err, stderr) => {
         report(err, stderr)
-        if (err) restoreClipboard(savedClipboard)
+        if (err) restoreClipboardIfUnchanged(savedClipboard, text)
       })
     } else if (tag === 'osascript') {
       // System Events keystrokes require the terminal to have Accessibility /

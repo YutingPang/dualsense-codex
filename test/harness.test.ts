@@ -413,9 +413,13 @@ describe('codex-app harness', () => {
   })
 
   it('restores the clipboard when the paste subprocess is killed', async () => {
-    execFileSync.mockImplementation((command: unknown) =>
-      command === '/usr/bin/pbpaste' ? 'earlier clipboard' : undefined,
-    )
+    let reads = 0
+    execFileSync.mockImplementation((command: unknown) => {
+      if (command !== '/usr/bin/pbpaste') return undefined
+      reads += 1
+      // First read is the snapshot; the killed paste left the prompt behind.
+      return reads === 1 ? 'earlier clipboard' : 'draft prompt'
+    })
     execFile.mockImplementation((...args: unknown[]) => {
       const cb = args[args.length - 1]
       if (typeof cb === 'function') cb(new Error('ETIMEDOUT'), '', '')
@@ -426,5 +430,21 @@ describe('codex-app harness', () => {
       input: 'earlier clipboard',
       timeout: 1000,
     })
+  })
+
+  it('leaves a clipboard the user replaced during the paste alone', async () => {
+    let reads = 0
+    execFileSync.mockImplementation((command: unknown) => {
+      if (command !== '/usr/bin/pbpaste') return undefined
+      reads += 1
+      return reads === 1 ? 'earlier clipboard' : 'copied while the paste was running'
+    })
+    execFile.mockImplementation((...args: unknown[]) => {
+      const cb = args[args.length - 1]
+      if (typeof cb === 'function') cb(new Error('ETIMEDOUT'), '', '')
+    })
+    codexAppHarness.execute?.('paste:' + Buffer.from('draft prompt').toString('base64'))
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(execFileSync).not.toHaveBeenCalledWith('/usr/bin/pbcopy', expect.anything())
   })
 })
