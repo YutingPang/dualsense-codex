@@ -168,6 +168,36 @@ Changes land through pull requests with an independent review pinned to a commit
 [docs/REVIEW.md](docs/REVIEW.md) for the workflow, the reviewer prompt, and the severity rubric.
 The rules in [AGENTS.md](AGENTS.md) apply to humans and agents alike.
 
+### Installing a build
+
+The app loads its window from the packaged `app.asar`, **not** from your checkout. Editing the
+renderer changes nothing until you rebuild and replace the installed copy — the classic symptom is
+launching the app and seeing last week's UI while `main` looks correct.
+
+```sh
+npm run desktop:package
+
+# quit the app from its menu-bar menu first, then:
+mv ~/Applications/"DualSense for Codex.app" ~/Applications/"DualSense for Codex.app.old"
+cp -R "out/DualSense for Codex-darwin-arm64/DualSense for Codex.app" ~/Applications/
+open -a ~/Applications/"DualSense for Codex.app"
+```
+
+For a faster loop, `npm run desktop:start` serves the renderer from Vite and reloads on save, so
+you never touch `~/Applications`.
+
+Two things that bite:
+
+- **`SIGTERM` is not enough.** The app owns the controller and runs a quit gate, so `kill` can
+  leave the old process running and the window unchanged. Quit from the menu-bar menu; if it
+  refuses, `kill -9` and accept that the pad was not released cleanly.
+- **Builds from an iCloud-synced checkout stall.** `node_modules` files report `dataless` and the
+  forge build blocks reading them. Build from a clone outside `~/Documents`; the environment notes
+  in [docs/REVIEW.md](docs/REVIEW.md#environment-notes) cover the symptoms.
+
+The login item registered by the app points at the installed path, so a rebuilt bundle there is also
+what starts at login.
+
 ## Lineage and license
 
 MIT licensed. Forked from [stephenleo/OpenMicro](https://github.com/stephenleo/OpenMicro): the
