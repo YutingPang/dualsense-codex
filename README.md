@@ -46,8 +46,8 @@ Use a native arm64 Node. Under Rosetta the CLI starts, but the arm64 package wil
 
 macOS asks for **Accessibility** permission (and **Automation** for System Events) the first time
 the companion synthesises a keystroke. Grant it to **DualSense for Codex**. Without it the
-shortcut never reaches the app; the companion prints the failing command and a permission hint
-rather than failing silently.
+shortcut never reaches the app; the companion prints the error and a permission hint rather than
+failing silently.
 
 ## One-time setup in the ChatGPT/Codex app
 
@@ -95,7 +95,11 @@ Workflow prompts prefill the composer rather than sending — press ✕ to submi
 remappable in the editor, but touchpad click, touch gestures, and the PS button are handled by the
 desktop wrapper and ignore bindings.
 
-In the terminal CLI, L2 cycles herdr workspaces and touchpad click cycles session focus instead.
+L2 and L3 walk the project and chat lists the companion reads from `~/.codex`; browsing inside the
+app with the mouse does not move that cursor.
+
+In the Claude Code and Codex CLI harnesses, L2 cycles herdr workspaces and touchpad click cycles
+session focus instead.
 
 ## Configuration
 
@@ -110,8 +114,9 @@ your config. Actions include `accept`, `reject`, `clear_input`, `push_to_talk`, 
 
 ## The terminal CLI
 
-The CLI is the same controller engine without the desktop shell. Claude Code and Codex CLI must
-already be installed and on your `PATH` — the harnesses launch them, they are not bundled:
+The CLI is the same controller engine without the desktop shell. The agent CLI you select must
+already be installed and on your `PATH` — the harness launches it rather than bundling it.
+`codex-app` needs only the desktop app:
 
 ```sh
 npm run dev -- claude      # Claude Code in a pty
